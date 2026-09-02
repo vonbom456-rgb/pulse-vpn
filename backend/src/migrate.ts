@@ -1,12 +1,11 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { loadConfig } from './config.js';
 import { createDatabase } from './db.js';
 
 const config = loadConfig();
 const db = createDatabase(config.DATABASE_URL);
-const directory = fileURLToPath(new URL('../migrations', import.meta.url));
+const directory = join(process.cwd(), 'migrations');
 
 await db.query(`CREATE TABLE IF NOT EXISTS schema_migrations (
   filename text PRIMARY KEY,

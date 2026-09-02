@@ -20,6 +20,7 @@ export class HexApiError extends Error {
 export class HexClient {
   constructor(
     private readonly config: Pick<AppConfig, 'HEX_API_KEY' | 'HEX_API_BASE_URL' | 'HEX_SUBSCRIPTION_HOSTS'>,
+    private readonly fetcher: typeof fetch = fetch,
   ) {}
 
   async get<T>(path: string, schema: z.ZodType<T>): Promise<T> {
@@ -39,7 +40,7 @@ export class HexClient {
     if (target.protocol !== 'https:' || !this.config.HEX_SUBSCRIPTION_HOSTS.includes(target.hostname.toLowerCase())) {
       throw new HexApiError(502, 'subscription_host_not_allowed');
     }
-    const response = await fetch(subscriptionUrl, {
+    const response = await this.fetcher(subscriptionUrl, {
       signal: AbortSignal.timeout(12_000),
       headers: { 'User-Agent': 'PulseVPN/1.0' },
       redirect: 'follow',
@@ -60,7 +61,7 @@ export class HexClient {
     let attempt = 0;
     while (true) {
       try {
-        const response = await fetch(`${this.config.HEX_API_BASE_URL}${path}`, {
+        const response = await this.fetcher(`${this.config.HEX_API_BASE_URL}${path}`, {
           method,
           signal: AbortSignal.timeout(8_000),
           headers: {

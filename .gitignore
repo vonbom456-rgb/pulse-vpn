@@ -1,0 +1,10 @@
+backend/.env
+backend/node_modules/
+backend/dist/
+*.jks
+*.keystore
+key.properties
+.dart_tool/
+build/
+.idea/
+*.iml

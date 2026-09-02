@@ -28,24 +28,7 @@ export function registerHexWebhook(
   hex: HexClient,
   subscriptions: SubscriptionService,
 ): void {
-  app.post('/api/webhooks/hex', async (request, reply) => {
-    const rawBody = request.rawBody;
-    const signature = request.headers['x-signature'];
-    if (!rawBody || !verifyWebhookSignature(rawBody, Array.isArray(signature) ? signature[0] : signature, config.HEX_WEBHOOK_SECRET)) {
-      return reply.code(401).send({ error: 'invalid_signature' });
-    }
-    const parsed = webhookPayloadSchema.safeParse(request.body);
-    if (!parsed.success) return reply.code(422).send({ error: 'invalid_webhook' });
-    const event = parsed.data;
-    if (!knownEvents.has(event.event)) return reply.code(204).send();
-
-    const inserted = await db.query<{ event_id: string }>(
-      `INSERT INTO hex_webhook_events (event_id, event_name, payload)
-       VALUES ($1, $2, $3) ON CONFLICT (event_id) DO NOTHING RETURNING event_id`,
-      [event.event_id, event.event, event],
-    );
-    if (!inserted.rows[0]) return reply.code(204).send();
-
+  const processEvent = async (event: ReturnType<typeof webhookPayloadSchema.parse>) => {
     if (event.subscription) {
       const user = await db.query<{ id: string }>(
         'SELECT id FROM users WHERE external_user_id = $1',
@@ -69,6 +52,40 @@ export function registerHexWebhook(
       }
     }
     await db.query('UPDATE hex_webhook_events SET processed_at = now() WHERE event_id = $1', [event.event_id]);
-    return reply.code(204).send();
+  };
+
+  app.post('/api/webhooks/hex', async (request, reply) => {
+    const rawBody = request.rawBody;
+    const signature = request.headers['x-signature'];
+    if (!rawBody || !verifyWebhookSignature(rawBody, Array.isArray(signature) ? signature[0] : signature, config.HEX_WEBHOOK_SECRET)) {
+      return reply.code(401).send({ error: 'invalid_signature' });
+    }
+    const parsed = webhookPayloadSchema.safeParse(request.body);
+    if (!parsed.success) return reply.code(422).send({ error: 'invalid_webhook' });
+    const event = parsed.data;
+    if (!knownEvents.has(event.event)) return reply.code(204).send();
+
+    const inserted = await db.query<{ event_id: string }>(
+      `INSERT INTO hex_webhook_events (event_id, event_name, payload)
+       VALUES ($1, $2, $3) ON CONFLICT (event_id) DO NOTHING RETURNING event_id`,
+      [event.event_id, event.event, event],
+    );
+    if (!inserted.rows[0]) return reply.code(204).send();
+    queueMicrotask(() => void processEvent(event).catch((error: unknown) => app.log.error({ err: error, eventId: event.event_id }, 'hex_webhook_processing_failed')));
+    return reply.code(202).send({ accepted: true });
   });
+
+  const retryTimer = setInterval(() => {
+    void db.query<{ payload: unknown }>(
+      `SELECT payload FROM hex_webhook_events
+       WHERE processed_at IS NULL ORDER BY received_at LIMIT 20`,
+    ).then(async (result) => {
+      for (const row of result.rows) {
+        const event = webhookPayloadSchema.safeParse(row.payload);
+        if (event.success) await processEvent(event.data);
+      }
+    }).catch((error: unknown) => app.log.error({ err: error }, 'hex_webhook_backlog_failed'));
+  }, 30_000);
+  retryTimer.unref();
+  app.addHook('onClose', () => clearInterval(retryTimer));
 }
