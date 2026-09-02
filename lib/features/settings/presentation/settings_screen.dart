@@ -100,8 +100,7 @@ class _SwitchRow extends StatelessWidget {
     secondary: Icon(icon, color: PulseColors.teal),
     title: Text(label),
     value: value,
-    activeColor: PulseColors.success,
+    activeThumbColor: PulseColors.success,
     onChanged: onChanged,
   );
 }
-

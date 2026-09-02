@@ -36,9 +36,19 @@ jobs:
         run: |
           if [ -f android/app/build.gradle.kts ]; then
             sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 26/' android/app/build.gradle.kts
+            sed -i '/sourceCompatibility = JavaVersion.VERSION_17/a\        isCoreLibraryDesugaringEnabled = true' android/app/build.gradle.kts
+            perl -0pi -e 's|\z|\ndependencies {\n    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")\n}\n|' android/app/build.gradle.kts
           fi
           if [ -f android/app/build.gradle ]; then
             sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 26/' android/app/build.gradle
+            sed -i '/sourceCompatibility JavaVersion.VERSION_17/a\        coreLibraryDesugaringEnabled true' android/app/build.gradle
+            perl -0pi -e "s|\z|\ndependencies {\n    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.5'\n}\n|" android/app/build.gradle
+          fi
+          if [ -f android/build.gradle.kts ]; then
+            sed -i '/        mavenCentral()/a\        maven { url = uri("https://jitpack.io") }' android/build.gradle.kts
+          fi
+          if [ -f android/build.gradle ]; then
+            sed -i "/        mavenCentral()/a\\        maven { url 'https://jitpack.io' }" android/build.gradle
           fi
 
       - name: Install dependencies

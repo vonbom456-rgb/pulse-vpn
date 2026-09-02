@@ -19,8 +19,7 @@ class AnimatedNumber extends StatelessWidget {
       tween: Tween(end: value),
       duration: duration,
       curve: PulseMotion.routeCurve,
-      builder: builder,
+      builder: (context, value, child) => builder(context, value),
     );
   }
 }
-

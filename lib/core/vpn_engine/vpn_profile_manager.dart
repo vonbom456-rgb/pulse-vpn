@@ -81,8 +81,10 @@ class SingBoxProfileManager implements VpnProfileManager {
 
   Future<Uri> _writeLocalImport(String content) async {
     final directory = await ProfileStorage().getStorageDirectory();
-    final file = File(
-      '${directory.path}${Platform.pathSeparator}pulse_import_${DateTime.now().microsecondsSinceEpoch}.txt',
+    final file = File.fromUri(
+      directory.uri.resolve(
+        'pulse_import_${DateTime.now().microsecondsSinceEpoch}.txt',
+      ),
     );
     await file.writeAsString(content, flush: true);
     return file.uri;

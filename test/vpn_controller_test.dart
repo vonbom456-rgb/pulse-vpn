@@ -9,6 +9,7 @@ void main() {
     final subscription = engine.snapshots.listen((event) => states.add(event.status));
     await engine.initialize();
     await engine.connect();
+    await Future<void>.delayed(Duration.zero);
     expect(states, containsAllInOrder([VpnStatus.disconnected, VpnStatus.connecting, VpnStatus.connected]));
     await subscription.cancel();
     await engine.dispose();
