@@ -8,6 +8,9 @@ import 'package:pulse_vpn/features/profile/presentation/profile_screen.dart';
 import 'package:pulse_vpn/features/servers/presentation/servers_screen.dart';
 import 'package:pulse_vpn/features/settings/presentation/settings_screen.dart';
 import 'package:pulse_vpn/features/statistics/presentation/statistics_screen.dart';
+import 'package:pulse_vpn/features/auth/presentation/auth_screen.dart';
+import 'package:pulse_vpn/features/subscription/presentation/devices_screen.dart';
+import 'package:pulse_vpn/features/subscription/presentation/subscription_screen.dart';
 
 final appRouter = GoRouter(
   initialLocation: '/onboarding',
@@ -19,6 +22,9 @@ final appRouter = GoRouter(
     GoRoute(path: '/statistics', pageBuilder: (_, state) => _page(state, const StatisticsScreen())),
     GoRoute(path: '/settings', pageBuilder: (_, state) => _page(state, const SettingsScreen())),
     GoRoute(path: '/profile', pageBuilder: (_, state) => _page(state, const ProfileScreen())),
+    GoRoute(path: '/auth', pageBuilder: (_, state) => _page(state, const AuthScreen())),
+    GoRoute(path: '/subscription', pageBuilder: (_, state) => _page(state, const SubscriptionScreen())),
+    GoRoute(path: '/devices', pageBuilder: (_, state) => _page(state, const DevicesScreen())),
   ],
 );
 
@@ -39,4 +45,3 @@ CustomTransitionPage<void> _page(GoRouterState state, Widget child) {
     ),
   );
 }
-

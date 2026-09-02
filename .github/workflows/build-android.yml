@@ -58,6 +58,7 @@ jobs:
         shell: bash
         run: |
           python3 tool/patch_sing_box_android.py
+          python3 tool/patch_android_manifest.py
           cp tool/android/MainActivity.kt \
             android/app/src/main/kotlin/app/pulse/vpn/pulse_vpn/MainActivity.kt
 
