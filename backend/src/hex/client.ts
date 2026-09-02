@@ -68,7 +68,7 @@ export class HexClient {
             Accept: 'application/json',
             ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
           },
-          body: body === undefined ? undefined : JSON.stringify(body),
+          ...(body === undefined ? {} : { body: JSON.stringify(body) }),
         });
         const payload: unknown = await response.json().catch(() => ({}));
         if (response.ok) return schema.parse(payload);

@@ -28,9 +28,10 @@ export async function buildApp(config: AppConfig, db: Database): Promise<Fastify
   });
   app.removeContentTypeParser('application/json');
   app.addContentTypeParser('application/json', { parseAs: 'buffer' }, (request, body, done) => {
-    request.rawBody = body;
+    const rawBody = Buffer.isBuffer(body) ? body : Buffer.from(body);
+    request.rawBody = rawBody;
     try {
-      done(null, JSON.parse(body.toString('utf8')) as unknown);
+      done(null, JSON.parse(rawBody.toString('utf8')) as unknown);
     } catch (error) {
       done(error as Error, undefined);
     }
