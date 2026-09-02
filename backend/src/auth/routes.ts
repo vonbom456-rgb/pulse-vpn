@@ -51,7 +51,7 @@ async function getOrCreateIdentity(
   }
 }
 
-export async function registerAuthRoutes(app: FastifyInstance, db: Database, config: AppConfig): Promise<void> {
+export function registerAuthRoutes(app: FastifyInstance, db: Database, config: AppConfig): void {
   const mailer = nodemailer.createTransport({
     host: config.SMTP_HOST,
     port: config.SMTP_PORT,

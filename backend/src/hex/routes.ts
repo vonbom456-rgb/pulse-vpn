@@ -7,7 +7,7 @@ function userId(request: FastifyRequest): string {
   return request.user.sub;
 }
 
-export async function registerSubscriptionRoutes(app: FastifyInstance, service: SubscriptionService): Promise<void> {
+export function registerSubscriptionRoutes(app: FastifyInstance, service: SubscriptionService): void {
   app.get('/api/plans', { onRequest: [app.authenticate] }, async () => {
     const result = await service.plans();
     return {

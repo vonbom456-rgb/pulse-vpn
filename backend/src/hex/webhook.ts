@@ -21,13 +21,13 @@ const knownEvents = new Set([
   'deposit.credited',
 ]);
 
-export async function registerHexWebhook(
+export function registerHexWebhook(
   app: FastifyInstance,
   db: Database,
   config: AppConfig,
   hex: HexClient,
   subscriptions: SubscriptionService,
-): Promise<void> {
+): void {
   app.post('/api/webhooks/hex', async (request, reply) => {
     const rawBody = request.rawBody;
     const signature = request.headers['x-signature'];

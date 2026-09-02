@@ -5,7 +5,6 @@ import { inTransaction } from '../db.js';
 import { HexClient, HexApiError } from './client.js';
 import {
   devicesResponseSchema,
-  hexSubscriptionSchema,
   mutationResponseSchema,
   plansResponseSchema,
   subscriptionResponseSchema,
@@ -129,7 +128,7 @@ export class SubscriptionService {
         action: string;
         request_payload: { newPlanUuid?: string; planId?: string; gb?: number };
         custom_id: string;
-        result: unknown | null;
+        result: Record<string, unknown> | null;
       }>(
         `SELECT id, subscription_id, action, request_payload, custom_id, result
          FROM hex_operation_quotes
@@ -231,7 +230,9 @@ export class SubscriptionService {
   }
 
   async cache(userId: string, subscription: HexSubscription, queryable: Pick<Database, 'query'> = this.db): Promise<void> {
-    const { subscription_url: _secret, ...safeRaw } = subscription;
+    const safeRaw = Object.fromEntries(
+      Object.entries(subscription).filter(([key]) => key !== 'subscription_url'),
+    );
     await queryable.query(
       `INSERT INTO hex_subscriptions
        (subscription_id, user_id, status, plan_uuid, plan_name, is_trial, days, days_left,

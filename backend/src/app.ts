@@ -35,12 +35,12 @@ export async function buildApp(config: AppConfig, db: Database): Promise<Fastify
       done(error as Error, undefined);
     }
   });
-  app.get('/health', async () => ({ ok: true }));
+  app.get('/health', () => ({ ok: true }));
   const hex = new HexClient(config);
   const subscriptions = new SubscriptionService(db, hex, config.HEX_BOT_ID);
-  await registerAuthRoutes(app, db, config);
-  await registerSubscriptionRoutes(app, subscriptions);
-  await registerHexWebhook(app, db, config, hex, subscriptions);
+  registerAuthRoutes(app, db, config);
+  registerSubscriptionRoutes(app, subscriptions);
+  registerHexWebhook(app, db, config, hex, subscriptions);
   return app;
 }
 
