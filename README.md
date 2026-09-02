@@ -11,18 +11,11 @@ Flutter-клиент премиального VPN-сервиса. Android-сбо
 - реальные группы/outbound-маршруты из sing-box, выбор узла и URL test;
 - импорт QR, subscription URL, VLESS URI и sing-box JSON;
 - статистика с live-графиком;
-- настройки, светлая/тёмная тема, профиль подписки;
+- настройки, светлая/тёмная тема и локальные VPN-профили;
 - production Android-адаптер `SingBoxVpnEngine` и mock через `--dart-define=PULSE_USE_MOCK=true`;
 - реальные потоки статуса, download/upload и трафика за сессию;
-- Riverpod для DI и асинхронного состояния, GoRouter для переходов.
-- безопасный HEX Franchise backend: подписка, тарифы, трафик, freeze и устройства;
-- вход через Telegram или email-код с собственным `pulse_user_id` и JWT-сессией.
-
-## HEX Franchise API
-
-Интеграция построена строго через сервер: `PulseVPN → backend → HEX`. В мобильном коде и APK нет `HEX_API_KEY`, webhook secret и исходного `subscription_url`. Backend находится в [`backend/`](backend/README.md) и использует Node.js, Fastify и PostgreSQL.
-
-Платные операции выполняются в два шага: сервер создаёт quote с точной суммой, приложение показывает подтверждение, затем backend отправляет операцию в HEX с устойчивым `custom_id`. Webhook проверяется по сырым байтам, дедуплицируется и перечитывает актуальную подписку из HEX.
+- Riverpod для DI и асинхронного состояния, GoRouter для переходов;
+- локальная инициализация MMKV до запуска sing-box.
 
 ## Запуск
 
@@ -32,7 +25,7 @@ Flutter-клиент премиального VPN-сервиса. Android-сбо
 flutter create . --platforms=android,ios
 flutter pub get
 dart run flutter_launcher_icons
-flutter run --dart-define=PULSE_API_URL=https://ваш-api-домен
+flutter run
 ```
 
 Минимальная версия Android — API 26. При первом запуске Android покажет системный диалог разрешения VPN. Без импортированного профиля кнопка подключения открывает экран добавления подписки.
@@ -52,8 +45,6 @@ iOS UI уже платформонезависим, но production Network Exte
 ## Почему Riverpod
 
 Riverpod одновременно решает DI для сменного `VpnEngine`, управление жизненным циклом stream-подписок и тестирование без `BuildContext`. Для этого проекта он оставляет меньше событийного boilerplate, чем Bloc, при сохранении явной модели состояния.
-
-Для iOS добавьте URL scheme `pulsevpn` в `ios/Runner/Info.plist`; Android deep link добавляется сборочным workflow автоматически. Telegram Login Widget требует домен backend, настроенный у бота. Секреты Telegram и HEX устанавливаются только в окружении backend.
 
 ## Структура
 
@@ -85,5 +76,4 @@ lib/
 - добавить фирменный variable font и единый кастомный line-icon font;
 - добавить шифрование чувствительных локальных метаданных и миграции;
 - проверить нестандартные subscription-форматы конкретного провайдера;
-- подключить API тарифа, оплату и secure storage токенов;
 - добавить golden/widget/integration тесты и CI signing.

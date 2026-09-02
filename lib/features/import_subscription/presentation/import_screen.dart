@@ -135,6 +135,7 @@ class ImportScreen extends ConsumerWidget {
         '${profile.name}: ${profile.outboundsCount} маршрутов добавлено',
         success: true,
       );
+      Navigator.of(context).maybePop();
     } catch (error) {
       if (!context.mounted) return;
       PulseBanner.show(context, _friendlyImportError(error));
@@ -146,7 +147,13 @@ class ImportScreen extends ConsumerWidget {
     if (message.contains('FormatException')) {
       return message.replaceFirst('FormatException: ', '');
     }
-    return 'Не удалось импортировать: $message';
+    if (message.contains('Invalid state') || message.contains('MMKV')) {
+      return 'Хранилище профилей не готово. Перезапустите приложение.';
+    }
+    if (message.contains('DioException') || message.contains('SocketException')) {
+      return 'Не удалось загрузить подписку. Проверьте ссылку и интернет.';
+    }
+    return 'Ссылка или конфигурация не распознана sing-box.';
   }
 }
 
