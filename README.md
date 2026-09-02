@@ -33,7 +33,7 @@ flutter run
 
 После загрузки проекта в GitHub откройте **Actions → Build Android APK → Run workflow**. Готовый файл появится внизу страницы запуска в разделе **Artifacts** под именем `pulse-vpn-release`.
 
-Workflow сам создаёт Android runner, выставляет minSdk 26, генерирует launcher icon, запускает analyze/tests и собирает release APK.
+Workflow сам создаёт Android runner, выставляет minSdk 26, генерирует launcher icon, запускает analyze/tests и собирает release APK. Pull request также проходит полную проверку до слияния.
 
 ## VPN-ядро и лицензия
 
