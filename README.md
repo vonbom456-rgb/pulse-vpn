@@ -1,5 +1,7 @@
 # Pulse VPN
 
+[![Build Android APK](https://github.com/vonbom456-rgb/pulse-vpn/actions/workflows/build-android.yml/badge.svg)](https://github.com/vonbom456-rgb/pulse-vpn/actions/workflows/build-android.yml)
+
 Flutter-клиент премиального VPN-сервиса. Android-сборка использует реальный `VpnService` и sing-box; UI и доменная логика не зависят от Android API, ядро скрыто за `VpnEngine`.
 
 ## Что готово
