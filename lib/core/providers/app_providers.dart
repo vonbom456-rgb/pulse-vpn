@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
 import 'package:pulse_vpn/core/network/subscription_client.dart';
+import 'package:pulse_vpn/core/network/pulse_api_client.dart';
+import 'package:pulse_vpn/core/auth/session_store.dart';
 import 'package:pulse_vpn/core/storage/profile_repository.dart';
 import 'package:pulse_vpn/core/vpn_engine/mock_vpn_engine.dart';
 import 'package:pulse_vpn/core/vpn_engine/sing_box_runtime.dart';
@@ -17,6 +19,16 @@ import 'package:pulse_vpn/core/vpn_engine/vpn_route_manager.dart';
 final themeModeProvider = StateProvider<ThemeMode>((ref) => ThemeMode.dark);
 
 final dioProvider = Provider<Dio>((ref) => Dio());
+final pulseApiBaseUrlProvider = Provider<String>(
+  (ref) => const String.fromEnvironment(
+    'PULSE_API_URL',
+    defaultValue: 'https://api.example.com',
+  ),
+);
+final sessionStoreProvider = Provider<SessionStore>((ref) => SessionStore());
+final pulseApiClientProvider = Provider<PulseApiClient>(
+  (ref) => PulseApiClient(ref.watch(sessionStoreProvider)),
+);
 final subscriptionClientProvider = Provider<SubscriptionClient>(
   (ref) => SubscriptionClient(ref.watch(dioProvider)),
 );

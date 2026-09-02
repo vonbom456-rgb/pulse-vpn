@@ -19,6 +19,9 @@ dependencies:
   mobile_scanner: ^6.0.7
   fl_chart: ^0.70.2
   flutter_sing_box: ^1.1.5
+  flutter_secure_storage: ^9.2.4
+  app_links: ^6.4.1
+  url_launcher: ^6.3.2
 
 dev_dependencies:
   flutter_test:
