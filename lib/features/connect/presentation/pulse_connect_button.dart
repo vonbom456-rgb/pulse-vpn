@@ -84,9 +84,10 @@ class _PulseConnectButtonState extends State<PulseConnectButton>
   @override
   Widget build(BuildContext context) {
     final connected = widget.status == VpnStatus.connected;
-    return SizedBox.square(
-      dimension: PulseSize.connectStage,
-      child: AnimatedBuilder(
+    return RepaintBoundary(
+      child: SizedBox.square(
+        dimension: PulseSize.connectStage,
+        child: AnimatedBuilder(
         animation: Listenable.merge([_heartbeat, _press, _wave]),
         builder: (context, _) {
           final beat = _active ? _beat(_heartbeat.value) : 0.0;
@@ -129,7 +130,8 @@ class _PulseConnectButtonState extends State<PulseConnectButton>
                 ),
               Transform.scale(
                 scale: pressedScale * (1 + beat * .015),
-                child: GestureDetector(
+                child: RepaintBoundary(
+                  child: GestureDetector(
                   onTap: _tap,
                   child: AnimatedContainer(
                     duration: PulseMotion.standard,
@@ -157,11 +159,13 @@ class _PulseConnectButtonState extends State<PulseConnectButton>
                       ),
                     ),
                   ),
+                  ),
                 ),
               ),
             ],
           );
         },
+        ),
       ),
     );
   }
