@@ -440,6 +440,22 @@ private fun SubscriptionHeaderCard(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
+        Spacer(Modifier.height(10.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(
+                onClick = openProfiles,
+                modifier = Modifier.size(36.dp).clip(CircleShape).background(Color.White.copy(.10f)),
+            ) {
+                Icon(Icons.Outlined.Info, "Информация о подписке", tint = Color.White.copy(.82f), modifier = Modifier.size(18.dp))
+            }
+            Spacer(Modifier.width(8.dp))
+            IconButton(
+                onClick = openProfiles,
+                modifier = Modifier.size(36.dp).clip(CircleShape).background(PulseColors.Cyan.copy(.15f)),
+            ) {
+                Icon(Icons.Outlined.Send, "Telegram", tint = PulseColors.Cyan, modifier = Modifier.size(18.dp))
+            }
+        }
         Spacer(Modifier.height(18.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             SubscriptionMeta(
@@ -478,19 +494,6 @@ private fun SubscriptionHeaderCard(
             fontSize = 12.sp,
             lineHeight = 17.sp,
         )
-        Spacer(Modifier.height(10.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            TextButton(onClick = openProfiles, contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp)) {
-                Icon(Icons.Outlined.Info, null, tint = Color.White.copy(.78f), modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(5.dp))
-                Text("Подробнее", color = Color.White.copy(.82f), fontSize = 12.sp)
-            }
-            TextButton(onClick = openProfiles, contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp)) {
-                Icon(Icons.Outlined.Send, null, tint = PulseColors.Cyan, modifier = Modifier.size(17.dp))
-                Spacer(Modifier.width(5.dp))
-                Text("Telegram", color = Color.White.copy(.82f), fontSize = 12.sp)
-            }
-        }
     }
 }
 
