@@ -7,7 +7,6 @@ import app.pulse.vpn.core.SettingsManager
 import app.pulse.vpn.core.TrafficSnapshot
 import app.pulse.vpn.core.VpnController
 import app.pulse.vpn.data.ImportResult
-import app.pulse.vpn.data.ImportSummary
 import app.pulse.vpn.data.ProfileRepository
 import app.pulse.vpn.data.VpnProfile
 import app.pulse.vpn.data.VpnServer
@@ -45,7 +44,6 @@ data class PulseUiState(
         else -> SettingsManager.perAppProxyExcludeList.toSet()
     },
     val apps: List<ProfileRepository.AppEntry> = emptyList(),
-    val importSummary: ImportSummary? = null,
 )
 
 class PulseViewModel(application: Application) : AndroidViewModel(application) {
@@ -98,12 +96,7 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
                     it.copy(
                         importing = false,
                         screen = Screen.HOME,
-                        message = null,
-                        importSummary = ImportSummary(
-                            result.profile,
-                            count,
-                            if (result.profile.sourceUrl != null) "Удалённая подписка" else "Локальная конфигурация",
-                        ),
+                        message = "Подписка добавлена · $count серверов",
                     )
                 }
             }
@@ -195,8 +188,6 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
         _state.update { it.copy(importing = false) }
         showMessage("Подписки обновлены")
     }
-
-    fun clearImportSummary() = _state.update { it.copy(importSummary = null) }
 
     fun setRoutingMode(value: String) = viewModelScope.launch {
         SettingsManager.routingMode = value

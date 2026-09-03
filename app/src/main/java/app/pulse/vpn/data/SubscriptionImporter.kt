@@ -28,9 +28,9 @@ import java.util.concurrent.TimeUnit
 class SubscriptionImporter(
     private val identityProvider: () -> SubscriptionIdentity = { SubscriptionIdentity() },
     private val client: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(12, TimeUnit.SECONDS)
-        .readTimeout(20, TimeUnit.SECONDS)
-        .callTimeout(30, TimeUnit.SECONDS)
+        .connectTimeout(6, TimeUnit.SECONDS)
+        .readTimeout(12, TimeUnit.SECONDS)
+        .callTimeout(18, TimeUnit.SECONDS)
         .followRedirects(true)
         .build(),
 ) {
@@ -54,7 +54,7 @@ class SubscriptionImporter(
     private fun fetchCompatible(url: String): Fetched {
         val identity = identityProvider()
         val timestamp = System.currentTimeMillis() / 1000
-        val pulseAgent = "PulseVPN/0.4.0 (Android; sing-box)"
+        val pulseAgent = "PulseVPN/0.5.0 (Android; sing-box)"
         val agents = if (url.contains("/redirect/auto", ignoreCase = true)) {
             listOf("Happ/4.6.0/android/$timestamp", pulseAgent, "sing-box/v1.13.15")
         } else {
@@ -81,7 +81,7 @@ class SubscriptionImporter(
                 if (identity.deviceOs.isNotBlank()) header("X-Device-OS", identity.deviceOs)
                 if (identity.osVersion.isNotBlank()) header("X-Ver-OS", identity.osVersion)
                 if (identity.deviceModel.isNotBlank()) header("X-Device-Model", identity.deviceModel)
-                header("X-App-Version", "0.4.0")
+                header("X-App-Version", "0.5.0")
             }
             .build()
         client.newCall(request).execute().use { response ->

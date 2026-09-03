@@ -116,7 +116,6 @@ import app.pulse.vpn.PulseViewModel
 import app.pulse.vpn.Screen
 import app.pulse.vpn.core.SettingsManager
 import app.pulse.vpn.data.ProfileRepository
-import app.pulse.vpn.data.ImportSummary
 import app.pulse.vpn.data.VpnProfile
 import app.pulse.vpn.data.VpnServer
 import io.nekohasekai.sfa.constant.Status
@@ -141,17 +140,6 @@ fun PulseApp(
         onImport = { showImport = false; viewModel.import(it) },
         scanQr = { showImport = false; scanQr() },
     )
-    state.importSummary?.let { summary ->
-        ImportSuccessDialog(
-            summary = summary,
-            openRoutes = {
-                viewModel.clearImportSummary()
-                viewModel.navigate(Screen.ROUTES)
-            },
-            dismiss = viewModel::clearImportSummary,
-        )
-    }
-
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         contentWindowInsets = WindowInsets(0),
@@ -162,6 +150,7 @@ fun PulseApp(
         },
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(bottom = padding.calculateBottomPadding())) {
+            PulseBackdrop(Modifier.fillMaxSize())
             AnimatedContent(targetState = state.screen, label = "screen") { screen ->
                 when (screen) {
                     Screen.HOME -> HomeScreen(state, requestConnect, viewModel::stopVpn, { viewModel.navigate(Screen.ROUTES) }, { viewModel.navigate(Screen.PROFILES) }, { showImport = true }, viewModel::selectServer)
@@ -176,11 +165,30 @@ fun PulseApp(
                 visible = state.message != null,
                 enter = fadeIn() + scaleIn(initialScale = .96f),
                 exit = fadeOut(),
-                modifier = Modifier.align(Alignment.TopCenter).padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 12.dp, start = 20.dp, end = 20.dp),
+                modifier = Modifier.align(Alignment.TopCenter).padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + if (state.screen == Screen.HOME) 72.dp else 12.dp, start = 20.dp, end = 20.dp),
             ) {
                 state.message?.let { InlineBanner(it, viewModel::clearMessage) }
             }
         }
+    }
+}
+
+@Composable
+private fun PulseBackdrop(modifier: Modifier = Modifier) {
+    val transition = rememberInfiniteTransition(label = "ambient-background")
+    val drift by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(9000), RepeatMode.Reverse),
+        label = "ambient-drift",
+    )
+    Canvas(modifier) {
+        val width = size.width
+        val height = size.height
+        val violet = Offset(width * (.12f + drift * .16f), height * (.18f + drift * .05f))
+        val cyan = Offset(width * (.92f - drift * .18f), height * (.58f - drift * .08f))
+        drawCircle(Brush.radialGradient(listOf(PulseColors.Violet.copy(.16f), Color.Transparent), radius = width * .62f), width * .62f, violet)
+        drawCircle(Brush.radialGradient(listOf(PulseColors.Cyan.copy(.10f), Color.Transparent), radius = width * .52f), width * .52f, cyan)
     }
 }
 
@@ -238,7 +246,7 @@ private fun HomeScreen(
 ) {
     val selected = state.servers.firstOrNull(VpnServer::selected) ?: state.servers.firstOrNull()
     Column(
-        Modifier.fillMaxSize().padding(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(
             top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 14.dp,
             start = 20.dp,
             end = 20.dp,
@@ -268,7 +276,7 @@ private fun HomeScreen(
             }
         }
 
-        Spacer(Modifier.weight(.7f))
+        Spacer(Modifier.height(38.dp))
         AnimatedContent(
             targetState = state.vpnStatus to (state.selectedProfile != null),
             label = "connection-title",
@@ -317,7 +325,7 @@ private fun HomeScreen(
                 CompactMetric("↑", formatSpeed(state.traffic.uploadPerSecond), "Отдача")
             }
         }
-        Spacer(Modifier.weight(.35f))
+        Spacer(Modifier.height(22.dp))
         if (state.selectedProfile == null) {
             PremiumCard(onClick = addProfile) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -333,15 +341,9 @@ private fun HomeScreen(
             }
         } else {
             Text("СЕРВЕРЫ", modifier = Modifier.fillMaxWidth().padding(start = 4.dp, bottom = 8.dp), color = MaterialTheme.colorScheme.onSurface.copy(.38f), fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
-            state.servers.take(3).forEach { server ->
+            state.servers.forEach { server ->
                 HomeServerRow(server, selectServer)
                 Spacer(Modifier.height(8.dp))
-            }
-            if (state.servers.size > 3) {
-                TextButton(onClick = routes, modifier = Modifier.align(Alignment.End)) {
-                    Text("Все серверы", color = PulseColors.Cyan)
-                    Icon(Icons.Outlined.ChevronRight, null, tint = PulseColors.Cyan)
-                }
             }
             if (state.servers.isEmpty()) {
                 PremiumCard(onClick = routes) {
@@ -786,32 +788,6 @@ private fun ImportDialog(loading: Boolean, onDismiss: () -> Unit, onImport: (Str
             }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
-    )
-}
-
-@Composable
-private fun ImportSuccessDialog(summary: ImportSummary, openRoutes: () -> Unit, dismiss: () -> Unit) {
-    AlertDialog(
-        onDismissRequest = dismiss,
-        containerColor = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(28.dp),
-        icon = { IconTile(Icons.Outlined.Check) },
-        title = { Text("Подписка добавлена") },
-        text = {
-            Column {
-                Text(summary.profile.name, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Spacer(Modifier.height(8.dp))
-                Text("${summary.serverCount} серверов доступно", color = MaterialTheme.colorScheme.onSurface.copy(.62f))
-                Text(summary.sourceLabel, color = MaterialTheme.colorScheme.onSurface.copy(.45f), fontSize = 13.sp)
-                summary.profile.expireAt?.takeIf { it > 0 }?.let {
-                    Text("Действует до ${DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(it * 1000))}", color = MaterialTheme.colorScheme.onSurface.copy(.45f), fontSize = 13.sp)
-                }
-            }
-        },
-        confirmButton = {
-            Button(onClick = openRoutes, shape = CircleShape, colors = ButtonDefaults.buttonColors(containerColor = PulseColors.Violet)) { Text("Открыть маршруты") }
-        },
-        dismissButton = { TextButton(onClick = dismiss) { Text("Готово") } },
     )
 }
 
