@@ -426,8 +426,12 @@ private fun SubscriptionHeaderCard(
     val source = profile.sourceUrl?.let { runCatching { URI(it).host }.getOrNull() }
     val context = LocalContext.current
     val sourceLink = profile.sourceUrl
-    val infoLink = sourceLink?.let { runCatching { URI(it).let { uri -> "${uri.scheme}://${uri.host}" } }.getOrNull() } ?: sourceLink
-    val telegramLink = sourceLink?.takeIf { it.contains("t.me", true) || it.contains("telegram", true) }
+    val infoServer = servers.firstOrNull { server ->
+        server.tag.contains("info", ignoreCase = true) || server.address?.contains("info.", ignoreCase = true) == true
+    }
+    val providerDescription = infoServer?.tag?.let(::extractInfoDescription)
+    val infoLink = extractHttpLink(infoServer?.tag) ?: sourceLink?.let(::rootLink)
+    val telegramLink = extractTelegramLink(infoServer?.tag)
     Column(
         Modifier.fillMaxWidth()
             .clip(RoundedCornerShape(26.dp))
@@ -455,23 +459,33 @@ private fun SubscriptionHeaderCard(
                 if (refreshing) CircularProgressIndicator(Modifier.size(17.dp), color = Color.White, strokeWidth = 2.dp)
                 else Icon(Icons.Outlined.Refresh, "Обновить", tint = Color.White.copy(.7f), modifier = Modifier.size(19.dp))
             }
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                IconButton(
-                    onClick = testPings,
-                    enabled = servers.isNotEmpty() && !testingPings,
-                    modifier = Modifier.size(38.dp),
-                ) {
-                    if (testingPings) CircularProgressIndicator(Modifier.size(17.dp), color = PulseColors.Cyan, strokeWidth = 2.dp)
-                    else Icon(Icons.Outlined.Speed, "Проверить пинг серверов", tint = PulseColors.Cyan, modifier = Modifier.size(19.dp))
+            val canPing = servers.isNotEmpty() && !testingPings
+            Row(
+                Modifier.height(36.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(PulseColors.Cyan.copy(alpha = if (canPing) .14f else .07f))
+                    .border(1.dp, PulseColors.Cyan.copy(alpha = if (canPing) .28f else .12f), RoundedCornerShape(12.dp))
+                    .clickable(enabled = canPing, onClick = testPings)
+                    .padding(horizontal = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (testingPings) {
+                    CircularProgressIndicator(Modifier.size(16.dp), color = PulseColors.Cyan, strokeWidth = 2.dp)
+                } else {
+                    Icon(Icons.Outlined.Speed, "Проверить пинг серверов", tint = PulseColors.Cyan.copy(alpha = if (canPing) 1f else .5f), modifier = Modifier.size(17.dp))
                 }
+                Spacer(Modifier.width(5.dp))
                 Text(
                     when {
-                        testingPings -> "…"
+                        testingPings -> "Проверка"
                         bestPing != null -> "${bestPing} мс"
+                        servers.isNotEmpty() -> "Пинг"
                         else -> "—"
                     },
-                    color = Color.White.copy(.58f),
-                    fontSize = 8.sp,
+                    color = Color.White.copy(alpha = if (canPing || testingPings) .88f else .45f),
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
                 )
             }
             IconButton(onClick = toggleExpanded, modifier = Modifier.size(38.dp)) {
@@ -493,20 +507,41 @@ private fun SubscriptionHeaderCard(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Spacer(Modifier.height(10.dp))
+                Column(
+                    Modifier.fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Color.White.copy(.07f))
+                        .border(1.dp, Color.White.copy(.08f), RoundedCornerShape(16.dp))
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                ) {
+                    Text("ОПИСАНИЕ ПОДПИСКИ", color = Color.White.copy(.44f), fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                    Spacer(Modifier.height(5.dp))
+                    Text(
+                        providerDescription ?: "Описание не указано провайдером",
+                        color = Color.White.copy(if (providerDescription != null) .88f else .48f),
+                        fontSize = 13.sp,
+                        lineHeight = 18.sp,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Spacer(Modifier.height(10.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(
-                        onClick = { if (infoLink != null) openExternal(context, infoLink) else openProfiles() },
-                        modifier = Modifier.size(42.dp),
-                    ) {
-                        Icon(Icons.Outlined.Info, "Информация о подписке", tint = Color.White.copy(.82f), modifier = Modifier.size(25.dp))
-                    }
+                    SubscriptionAction(
+                        icon = Icons.Outlined.Info,
+                        label = "Сайт",
+                        enabled = infoLink != null,
+                        tint = Color.White.copy(.86f),
+                        onClick = { infoLink?.let { openExternal(context, it) } },
+                    )
                     Spacer(Modifier.width(8.dp))
-                    IconButton(
-                        onClick = { if (telegramLink != null) openExternal(context, telegramLink) else if (sourceLink != null) openExternal(context, sourceLink) else openProfiles() },
-                        modifier = Modifier.size(42.dp),
-                    ) {
-                        Icon(Icons.Outlined.Send, "Telegram", tint = PulseColors.Cyan, modifier = Modifier.size(25.dp))
-                    }
+                    SubscriptionAction(
+                        icon = Icons.Outlined.Send,
+                        label = "Telegram",
+                        enabled = telegramLink != null,
+                        tint = PulseColors.Cyan,
+                        onClick = { telegramLink?.let { openExternal(context, it) } },
+                    )
                 }
                 Spacer(Modifier.height(18.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -558,6 +593,52 @@ private fun SubscriptionHeaderCard(
         }
     }
 }
+
+@Composable
+private fun SubscriptionAction(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    enabled: Boolean,
+    tint: Color,
+    onClick: () -> Unit,
+) {
+    Row(
+        Modifier.height(38.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color.White.copy(alpha = if (enabled) .08f else .035f))
+            .border(1.dp, Color.White.copy(alpha = if (enabled) .14f else .06f), RoundedCornerShape(12.dp))
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, label, tint = tint.copy(alpha = if (enabled) 1f else .34f), modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(7.dp))
+        Text(label, color = Color.White.copy(alpha = if (enabled) .82f else .36f), fontSize = 11.sp, fontWeight = FontWeight.Medium)
+    }
+}
+
+private fun extractInfoDescription(tag: String): String? {
+    val cleaned = tag
+        .replace(Regex("(?i).*\\binfo\\b\\s*[|:·\\-]?\\s*"), "")
+        .replace(Regex("\\s+"), " ")
+        .trim(' ', '|', ':', '·', '-')
+    return cleaned.takeIf { it.isNotBlank() && !it.equals(tag.trim(), ignoreCase = true) }
+}
+
+private fun extractTelegramLink(value: String?): String? {
+    val handle = value?.let { Regex("(?<![A-Za-z0-9_])@[A-Za-z0-9_]{4,}").find(it)?.value } ?: return null
+    return "https://t.me/${handle.removePrefix("@")}"
+}
+
+private fun extractHttpLink(value: String?): String? = value
+    ?.let { Regex("https?://[^\\s|]+", RegexOption.IGNORE_CASE).find(it)?.value?.trimEnd('.', ',', ')', ']') }
+
+private fun rootLink(value: String): String? = runCatching {
+    URI(value).let { uri ->
+        val host = uri.host ?: return@runCatching null
+        "${uri.scheme ?: "https"}://$host"
+    }
+}.getOrNull()
 
 private fun displayProfileName(profile: VpnProfile): String {
     val raw = profile.name.trim()
