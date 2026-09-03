@@ -20,6 +20,9 @@ android {
 
     buildTypes {
         release {
+            // Пока это alpha-сборка: делаем APK устанавливаемым без секретов в Git.
+            // Перед публикацией в Google Play заменить на собственный release-keystore.
+            signingConfig = signingConfigs.getByName("debug")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
