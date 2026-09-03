@@ -7,6 +7,7 @@ import app.pulse.vpn.core.SettingsManager
 import app.pulse.vpn.core.TrafficSnapshot
 import app.pulse.vpn.core.VpnController
 import app.pulse.vpn.data.ImportResult
+import app.pulse.vpn.data.ImportSummary
 import app.pulse.vpn.data.ProfileRepository
 import app.pulse.vpn.data.VpnProfile
 import app.pulse.vpn.data.VpnServer
@@ -35,6 +36,7 @@ data class PulseUiState(
     val message: String? = null,
     val darkTheme: Boolean = SettingsManager.darkTheme,
     val autoConnect: Boolean = SettingsManager.autoConnect,
+    val refreshOnOpen: Boolean = SettingsManager.refreshOnOpen,
     val routingMode: String = SettingsManager.routingMode,
     val dnsMode: String = SettingsManager.dnsMode,
     val perAppMode: Int = SettingsManager.perAppProxyMode,
@@ -43,6 +45,7 @@ data class PulseUiState(
         else -> SettingsManager.perAppProxyExcludeList.toSet()
     },
     val apps: List<ProfileRepository.AppEntry> = emptyList(),
+    val importSummary: ImportSummary? = null,
 )
 
 class PulseViewModel(application: Application) : AndroidViewModel(application) {
@@ -52,7 +55,7 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
     val state: StateFlow<PulseUiState> = _state.asStateFlow()
 
     init {
-        reload(refreshRemote = true)
+        reload(refreshRemote = SettingsManager.refreshOnOpen)
         viewModelScope.launch { vpn.status.collect { value -> _state.update { it.copy(vpnStatus = value) } } }
         viewModelScope.launch { vpn.traffic.collect { value -> _state.update { it.copy(traffic = value) } } }
         viewModelScope.launch { vpn.delays.collect { values ->
@@ -89,8 +92,20 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
         _state.update { it.copy(importing = true, message = null) }
         when (val result = repository.importProfile(input)) {
             is ImportResult.Success -> {
+                val count = repository.servers(result.profile).size
                 reload()
-                _state.update { it.copy(importing = false, screen = Screen.HOME, message = "Профиль «${result.profile.name}» добавлен") }
+                _state.update {
+                    it.copy(
+                        importing = false,
+                        screen = Screen.HOME,
+                        message = null,
+                        importSummary = ImportSummary(
+                            result.profile,
+                            count,
+                            if (result.profile.sourceUrl != null) "Удалённая подписка" else "Локальная конфигурация",
+                        ),
+                    )
+                }
             }
             is ImportResult.Error -> _state.update { it.copy(importing = false, message = result.message) }
         }
@@ -160,6 +175,28 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
         SettingsManager.autoConnect = value
         _state.update { it.copy(autoConnect = value) }
     }
+
+    fun setRefreshOnOpen(value: Boolean) {
+        SettingsManager.refreshOnOpen = value
+        _state.update { it.copy(refreshOnOpen = value) }
+    }
+
+    fun refreshSubscriptions() = viewModelScope.launch {
+        val remote = _state.value.profiles.filter { it.sourceUrl != null }
+        if (remote.isEmpty()) return@launch showMessage("Нет удалённых подписок для обновления")
+        _state.update { it.copy(importing = true) }
+        remote.forEach { profile ->
+            when (repository.update(profile)) {
+                is ImportResult.Success -> Unit
+                is ImportResult.Error -> Unit
+            }
+        }
+        reload()
+        _state.update { it.copy(importing = false) }
+        showMessage("Подписки обновлены")
+    }
+
+    fun clearImportSummary() = _state.update { it.copy(importSummary = null) }
 
     fun setRoutingMode(value: String) = viewModelScope.launch {
         SettingsManager.routingMode = value

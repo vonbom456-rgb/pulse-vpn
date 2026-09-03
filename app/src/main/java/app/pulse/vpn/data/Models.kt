@@ -30,6 +30,12 @@ data class ImportedProfile(
     val userInfo: SubscriptionUserInfo,
 )
 
+data class ImportSummary(
+    val profile: VpnProfile,
+    val serverCount: Int,
+    val sourceLabel: String,
+)
+
 data class SubscriptionUserInfo(
     val upload: Long? = null,
     val download: Long? = null,

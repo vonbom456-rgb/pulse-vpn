@@ -17,6 +17,9 @@ object SettingsManager {
     var autoConnect: Boolean
         get() = storage.decodeBool(Keys.AUTO_CONNECT, false)
         set(value) { storage.encode(Keys.AUTO_CONNECT, value); storage.sync() }
+    var refreshOnOpen: Boolean
+        get() = storage.decodeBool(Keys.REFRESH_ON_OPEN, true)
+        set(value) { storage.encode(Keys.REFRESH_ON_OPEN, value); storage.sync() }
     var systemProxyEnabled: Boolean
         get() = storage.decodeBool(Keys.SYSTEM_PROXY_ENABLED, true)
         set(value) { storage.encode(Keys.SYSTEM_PROXY_ENABLED, value); storage.sync() }
@@ -58,6 +61,7 @@ object SettingsManager {
         const val DISABLE_MEMORY_LIMIT = "disable_memory_limit"
         const val STARTED_BY_USER = "started_by_user"
         const val AUTO_CONNECT = "auto_connect"
+        const val REFRESH_ON_OPEN = "refresh_on_open"
         const val SYSTEM_PROXY_ENABLED = "system_proxy_enabled"
         const val AUTO_REDIRECT = "auto_redirect"
         const val DARK_THEME = "dark_theme"
