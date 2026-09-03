@@ -13,7 +13,7 @@ abstract final class PulseBanner {
     late final OverlayEntry entry;
     entry = OverlayEntry(
       builder: (context) => Positioned(
-        top: MediaQuery.paddingOf(context).top + PulseSpace.sm,
+        top: MediaQuery.paddingOf(context).top + kToolbarHeight + PulseSpace.xs,
         left: PulseSpace.page,
         right: PulseSpace.page,
         child: Material(

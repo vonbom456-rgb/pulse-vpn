@@ -1,5 +1,3 @@
-import 'dart:ui';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -12,9 +10,6 @@ import 'package:pulse_vpn/core/vpn_engine/vpn_profile_manager.dart';
 import 'package:pulse_vpn/core/vpn_engine/vpn_route_manager.dart';
 import 'package:pulse_vpn/features/connect/presentation/pulse_connect_button.dart';
 import 'package:pulse_vpn/features/servers/presentation/server_picker_sheet.dart';
-import 'package:pulse_vpn/features/auth/application/auth_controller.dart';
-import 'package:pulse_vpn/features/subscription/application/subscription_controller.dart';
-import 'package:pulse_vpn/features/subscription/domain/pulse_subscription.dart';
 import 'package:pulse_vpn/shared/widgets/animated_number.dart';
 import 'package:pulse_vpn/shared/widgets/glass_card.dart';
 import 'package:pulse_vpn/shared/widgets/pulse_banner.dart';
@@ -43,10 +38,6 @@ class ConnectScreen extends ConsumerWidget {
       }
     }
     final connected = vpn.status == VpnStatus.connected;
-    final signedIn = ref.watch(authControllerProvider).asData?.value != null;
-    final pulseSubscription = signedIn
-        ? ref.watch(pulseSubscriptionProvider).asData?.value
-        : null;
     ref.listen(vpnControllerProvider, (previous, next) {
       if (next.status == VpnStatus.error && next.errorMessage != null) {
         _showError(context, next.errorMessage!);
@@ -78,7 +69,7 @@ class ConnectScreen extends ConsumerWidget {
               padding: const EdgeInsets.symmetric(horizontal: PulseSpace.page),
               child: Column(
                 children: [
-                  _Header(onProfile: () => context.push('/subscription')),
+                  _Header(onProfile: () => context.push('/profile')),
                   const Spacer(),
                   Text(
                     !configured
@@ -115,8 +106,6 @@ class ConnectScreen extends ConsumerWidget {
                     profile: selectedProfile,
                     route: selectedRoute,
                   ),
-                  const SizedBox(height: PulseSpace.sm),
-                  _SubscriptionStrip(subscription: pulseSubscription),
                   const SizedBox(height: PulseSpace.md),
                   const _NavigationDock(),
                   const SizedBox(height: PulseSpace.sm),
@@ -131,36 +120,6 @@ class ConnectScreen extends ConsumerWidget {
 
   void _showError(BuildContext context, String message) {
     PulseBanner.show(context, message);
-  }
-}
-
-class _SubscriptionStrip extends StatelessWidget {
-  const _SubscriptionStrip({required this.subscription});
-  final PulseSubscription? subscription;
-
-  @override
-  Widget build(BuildContext context) {
-    final value = subscription;
-    return InkWell(
-      borderRadius: BorderRadius.circular(PulseRadius.pill),
-      onTap: () => context.push('/subscription'),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: PulseSpace.sm, vertical: PulseSpace.xs),
-        child: Row(children: [
-          const Icon(Icons.workspace_premium_outlined, size: 18, color: PulseColors.teal),
-          const SizedBox(width: PulseSpace.xs),
-          Expanded(child: Text(
-            value == null
-                ? 'Подписка · войти'
-                : '${value.planName} · ${value.daysLeft} дн.',
-            style: Theme.of(context).textTheme.bodyMedium,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          )),
-          const Icon(Icons.chevron_right_rounded, size: 18, color: PulseColors.textSecondary),
-        ]),
-      ),
-    );
   }
 }
 
@@ -307,11 +266,7 @@ class _NavigationDock extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(PulseRadius.pill),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-        child: Container(
+    return Container(
           height: PulseSize.bottomNavHeight,
           decoration: BoxDecoration(color: PulseColors.surface, borderRadius: BorderRadius.circular(PulseRadius.pill), border: Border.all(color: Colors.white.withValues(alpha: .07))),
           child: Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
@@ -320,9 +275,7 @@ class _NavigationDock extends StatelessWidget {
             _NavIcon(icon: Icons.dns_outlined, onTap: () => context.push('/servers')),
             _NavIcon(icon: Icons.tune_rounded, onTap: () => context.push('/settings')),
           ]),
-        ),
-      ),
-    );
+        );
   }
 }
 
