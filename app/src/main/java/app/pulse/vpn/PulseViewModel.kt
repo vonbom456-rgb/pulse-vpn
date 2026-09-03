@@ -33,6 +33,7 @@ data class PulseUiState(
     val profiles: List<VpnProfile> = emptyList(),
     val selectedProfile: VpnProfile? = null,
     val servers: List<VpnServer> = emptyList(),
+    val pingHistory: Map<String, List<Int>> = emptyMap(),
     val vpnStatus: Status = Status.Stopped,
     val traffic: TrafficSnapshot = TrafficSnapshot(),
     val importing: Boolean = false,
@@ -41,6 +42,7 @@ data class PulseUiState(
     val darkTheme: Boolean = SettingsManager.darkTheme,
     val autoConnect: Boolean = SettingsManager.autoConnect,
     val refreshOnOpen: Boolean = SettingsManager.refreshOnOpen,
+    val autoFastest: Boolean = SettingsManager.autoFastest,
     val routingMode: String = SettingsManager.routingMode,
     val dnsMode: String = SettingsManager.dnsMode,
     val perAppMode: Int = SettingsManager.perAppProxyMode,
@@ -94,7 +96,7 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
         }
         if (selected != null) repository.select(selected)
         val servers = repository.servers(selected)
-        _state.update { it.copy(profiles = profiles, selectedProfile = selected, servers = servers) }
+        _state.update { it.copy(profiles = profiles, selectedProfile = selected, servers = servers, pingHistory = emptyMap()) }
     }
 
     fun import(input: String) = viewModelScope.launch {
@@ -129,7 +131,7 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
         if (_state.value.vpnStatus == Status.Started) vpn.stop()
         repository.select(profile)
         val servers = repository.servers(profile)
-        _state.update { it.copy(selectedProfile = profile, servers = servers, screen = Screen.HOME) }
+        _state.update { it.copy(selectedProfile = profile, servers = servers, pingHistory = emptyMap(), screen = Screen.HOME) }
     }
 
     fun deleteProfile(profile: VpnProfile) = viewModelScope.launch {
@@ -166,7 +168,23 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }.awaitAll()
         }.sortedWith(compareBy<VpnServer> { it.delayMs == null }.thenBy { it.delayMs ?: Int.MAX_VALUE })
-        _state.update { it.copy(servers = measured, testingServers = false, message = "Проверено серверов: ${measured.count { server -> server.delayMs != null }} из ${measured.size}") }
+        val fastest = measured.firstOrNull { it.delayMs != null }
+        if (SettingsManager.autoFastest && fastest != null) {
+            _state.value.selectedProfile?.let { profile -> repository.selectServer(profile, fastest) }
+        }
+        _state.update { current ->
+            val history = current.pingHistory.toMutableMap()
+            measured.forEach { server ->
+                val sample = server.delayMs ?: -1
+                history[server.tag] = (history[server.tag].orEmpty() + sample).takeLast(20)
+            }
+            current.copy(
+                servers = if (SettingsManager.autoFastest && fastest != null) measured.map { it.copy(selected = it.tag == fastest.tag) } else measured,
+                pingHistory = history,
+                testingServers = false,
+                message = "Проверено серверов: ${measured.count { server -> server.delayMs != null }} из ${measured.size}",
+            )
+        }
     }
 
     fun startVpn() {
@@ -189,6 +207,11 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
     fun setRefreshOnOpen(value: Boolean) {
         SettingsManager.refreshOnOpen = value
         _state.update { it.copy(refreshOnOpen = value) }
+    }
+
+    fun setAutoFastest(value: Boolean) {
+        SettingsManager.autoFastest = value
+        _state.update { it.copy(autoFastest = value) }
     }
 
     fun refreshSubscriptions() = viewModelScope.launch {

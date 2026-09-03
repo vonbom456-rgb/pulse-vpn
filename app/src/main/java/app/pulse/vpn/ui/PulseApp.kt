@@ -86,6 +86,8 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.foundation.Image
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -98,6 +100,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.viewinterop.AndroidView
 import android.widget.ImageView
+import android.content.Intent
+import android.net.Uri as AndroidUri
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -170,8 +174,8 @@ fun PulseApp(
             PulseBackdrop(Modifier.fillMaxSize())
             AnimatedContent(targetState = state.screen, label = "screen") { screen ->
                 when (screen) {
-                    Screen.HOME -> HomeScreen(state, requestConnect, viewModel::stopVpn, { viewModel.navigate(Screen.ROUTES) }, { viewModel.navigate(Screen.PROFILES) }, { showImport = true }, viewModel::selectServer, { state.selectedProfile?.let(viewModel::updateProfile) })
-                    Screen.ROUTES -> RoutesScreen(state, viewModel::selectServer, viewModel::testServers, { showImport = true })
+                    Screen.HOME -> HomeScreen(state, requestConnect, viewModel::stopVpn, { viewModel.navigate(Screen.ROUTES) }, { viewModel.navigate(Screen.PROFILES) }, { showImport = true }, viewModel::selectServer, { state.selectedProfile?.let(viewModel::updateProfile) }, viewModel::testServers)
+                    Screen.ROUTES -> RoutesScreen(state, viewModel::selectServer, viewModel::testServers, viewModel::refreshSubscriptions, { showImport = true })
                     Screen.STATS -> StatsScreen(state)
                     Screen.SETTINGS -> SettingsScreen(state, viewModel, openVpnSettings)
                     Screen.PROFILES -> ProfilesScreen(state, { viewModel.navigate(Screen.HOME) }, { showImport = true }, viewModel::selectProfile, viewModel::updateProfile, viewModel::deleteProfile)
@@ -261,6 +265,7 @@ private fun HomeScreen(
     addProfile: () -> Unit,
     selectServer: (VpnServer) -> Unit,
     refreshProfile: () -> Unit,
+    testPings: () -> Unit,
 ) {
     val selected = state.servers.firstOrNull(VpnServer::selected) ?: state.servers.firstOrNull()
     var subscriptionExpanded by rememberSaveable { mutableStateOf(true) }
@@ -347,6 +352,8 @@ private fun HomeScreen(
                 refreshing = state.importing,
                 expanded = subscriptionExpanded,
                 toggleExpanded = { subscriptionExpanded = !subscriptionExpanded },
+                testPings = testPings,
+                testingPings = state.testingServers,
             )
         }
         AnimatedVisibility(visible = state.vpnStatus == Status.Started) {
@@ -406,6 +413,8 @@ private fun SubscriptionHeaderCard(
     refreshing: Boolean,
     expanded: Boolean,
     toggleExpanded: () -> Unit,
+    testPings: () -> Unit,
+    testingPings: Boolean,
 ) {
     val profileName = displayProfileName(profile)
     val expires = profile.expireAt?.takeIf { it > 0 }
@@ -413,7 +422,12 @@ private fun SubscriptionHeaderCard(
         TimeUnit.MILLISECONDS.toDays((it * 1000L - System.currentTimeMillis()).coerceAtLeast(0L)).toInt()
     }
     val used = (profile.uploadBytes ?: 0L) + (profile.downloadBytes ?: 0L)
+    val bestPing = servers.mapNotNull(VpnServer::delayMs).minOrNull()
     val source = profile.sourceUrl?.let { runCatching { URI(it).host }.getOrNull() }
+    val context = LocalContext.current
+    val sourceLink = profile.sourceUrl
+    val infoLink = sourceLink?.let { runCatching { URI(it).let { uri -> "${uri.scheme}://${uri.host}" } }.getOrNull() } ?: sourceLink
+    val telegramLink = sourceLink?.takeIf { it.contains("t.me", true) || it.contains("telegram", true) }
     Column(
         Modifier.fillMaxWidth()
             .clip(RoundedCornerShape(26.dp))
@@ -446,6 +460,25 @@ private fun SubscriptionHeaderCard(
                 if (refreshing) CircularProgressIndicator(Modifier.size(17.dp), color = Color.White, strokeWidth = 2.dp)
                 else Icon(Icons.Outlined.Refresh, "Обновить", tint = Color.White.copy(.7f), modifier = Modifier.size(19.dp))
             }
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                IconButton(
+                    onClick = testPings,
+                    enabled = servers.isNotEmpty() && !testingPings,
+                    modifier = Modifier.size(38.dp),
+                ) {
+                    if (testingPings) CircularProgressIndicator(Modifier.size(17.dp), color = PulseColors.Cyan, strokeWidth = 2.dp)
+                    else Icon(Icons.Outlined.Speed, "Проверить пинг серверов", tint = PulseColors.Cyan, modifier = Modifier.size(19.dp))
+                }
+                Text(
+                    when {
+                        testingPings -> "…"
+                        bestPing != null -> "${bestPing} мс"
+                        else -> "—"
+                    },
+                    color = Color.White.copy(.58f),
+                    fontSize = 8.sp,
+                )
+            }
             IconButton(onClick = toggleExpanded, modifier = Modifier.size(38.dp)) {
                 Icon(
                     if (expanded) Icons.Outlined.KeyboardArrowUp else Icons.Outlined.KeyboardArrowDown,
@@ -467,14 +500,14 @@ private fun SubscriptionHeaderCard(
                 Spacer(Modifier.height(10.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(
-                        onClick = openProfiles,
+                        onClick = { if (infoLink != null) openExternal(context, infoLink) else openProfiles() },
                         modifier = Modifier.size(36.dp).clip(CircleShape).background(Color.White.copy(.10f)),
                     ) {
                         Icon(Icons.Outlined.Info, "Информация о подписке", tint = Color.White.copy(.82f), modifier = Modifier.size(18.dp))
                     }
                     Spacer(Modifier.width(8.dp))
                     IconButton(
-                        onClick = openProfiles,
+                        onClick = { if (telegramLink != null) openExternal(context, telegramLink) else if (sourceLink != null) openExternal(context, sourceLink) else openProfiles() },
                         modifier = Modifier.size(36.dp).clip(CircleShape).background(PulseColors.Cyan.copy(.15f)),
                     ) {
                         Icon(Icons.Outlined.Send, "Telegram", tint = PulseColors.Cyan, modifier = Modifier.size(18.dp))
@@ -506,13 +539,26 @@ private fun SubscriptionHeaderCard(
                     )
                 }
                 Spacer(Modifier.height(12.dp))
-                Text(
-                    if (servers.isNotEmpty()) "Выберите любую страну ниже — маршрут применится при подключении"
-                    else "Добавьте серверы из ссылки подписки",
-                    color = Color.White.copy(.62f),
-                    fontSize = 12.sp,
-                    lineHeight = 17.sp,
-                )
+                Column(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Color.White.copy(.06f)).padding(horizontal = 14.dp, vertical = 12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(
+                        when {
+                            daysLeft == null -> "Срок подписки не указан"
+                            daysLeft == 0 -> "Подписка закончилась"
+                            else -> "Осталось $daysLeft ${dayWord(daysLeft)}"
+                        },
+                        color = Color.White.copy(.88f),
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        if (servers.isNotEmpty()) "Серверов в подписке: ${servers.size}" else "Серверы не найдены",
+                        color = Color.White.copy(.56f),
+                        fontSize = 11.sp,
+                    )
+                }
             }
         }
     }
@@ -526,6 +572,18 @@ private fun displayProfileName(profile: VpnProfile): String {
     val decoded = runCatching { String(Base64.getDecoder().decode(padded), StandardCharsets.UTF_8) }
         .getOrNull()?.trim()
     return decoded?.takeIf { it.isNotBlank() } ?: profile.sourceUrl?.let { runCatching { URI(it).host }.getOrNull() } ?: "VPN подписка"
+}
+
+private fun openExternal(context: android.content.Context, link: String) {
+    runCatching {
+        context.startActivity(Intent(Intent.ACTION_VIEW, AndroidUri.parse(link)))
+    }
+}
+
+private fun dayWord(value: Int): String = when {
+    value % 10 == 1 && value % 100 != 11 -> "день"
+    value % 10 in 2..4 && value % 100 !in 12..14 -> "дня"
+    else -> "дней"
 }
 
 @Composable
@@ -673,8 +731,15 @@ private fun PulseConnectButton(status: Status, configured: Boolean, onClick: () 
 }
 
 @Composable
-private fun RoutesScreen(state: PulseUiState, select: (VpnServer) -> Unit, test: () -> Unit, add: () -> Unit) {
+private fun RoutesScreen(
+    state: PulseUiState,
+    select: (VpnServer) -> Unit,
+    test: () -> Unit,
+    refresh: () -> Unit,
+    add: () -> Unit,
+) {
     var query by remember { mutableStateOf("") }
+    var details by remember { mutableStateOf<VpnServer?>(null) }
     val filtered = remember(state.servers, query) {
         state.servers.filter { it.tag.contains(query, ignoreCase = true) }
     }
@@ -707,31 +772,39 @@ private fun RoutesScreen(state: PulseUiState, select: (VpnServer) -> Unit, test:
             placeholder = { Text("Название сервера") },
         )
         Spacer(Modifier.height(14.dp))
-        LazyColumn(
+        PullToRefreshBox(
+            isRefreshing = state.importing,
+            onRefresh = refresh,
+            state = rememberPullToRefreshState(),
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            when {
-                state.selectedProfile == null -> item {
-                    EmptyCard(Icons.Outlined.Route, "Маршрутов пока нет", "Добавьте подписку — список появится сразу после импорта.", "Добавить подписку", add)
-                }
-                state.servers.isEmpty() -> item {
-                    EmptyCard(Icons.Outlined.Info, "В профиле нет серверов", "Обновите подписку или добавьте другую.", "Добавить другой", add)
-                }
-                filtered.isEmpty() -> item {
-                    EmptyCard(Icons.Outlined.Search, "Ничего не найдено", "Попробуйте изменить запрос.", "Очистить", { query = "" })
-                }
-                else -> items(filtered, key = VpnServer::tag) { server ->
-                    ServerRow(server, { select(server) })
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(bottom = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                when {
+                    state.selectedProfile == null -> item {
+                        EmptyCard(Icons.Outlined.Route, "Маршрутов пока нет", "Добавьте подписку — список появится сразу после импорта.", "Добавить подписку", add)
+                    }
+                    state.servers.isEmpty() -> item {
+                        EmptyCard(Icons.Outlined.Info, "В профиле нет серверов", "Обновите подписку или добавьте другую.", "Добавить другой", add)
+                    }
+                    filtered.isEmpty() -> item {
+                        EmptyCard(Icons.Outlined.Search, "Ничего не найдено", "Попробуйте изменить запрос.", "Очистить", { query = "" })
+                    }
+                    else -> items(filtered, key = VpnServer::tag) { server ->
+                        ServerRow(server, { select(server) }, { details = server })
+                    }
                 }
             }
         }
     }
+    details?.let { server -> ServerDetailsDialog(server, state.pingHistory[server.tag].orEmpty()) { details = null } }
 }
 
 @Composable
-private fun ServerRow(server: VpnServer, onClick: () -> Unit) {
+private fun ServerRow(server: VpnServer, onClick: () -> Unit, onInfo: () -> Unit) {
     PremiumCard(onClick = onClick) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(
@@ -759,11 +832,43 @@ private fun ServerRow(server: VpnServer, onClick: () -> Unit) {
                     ?: MaterialTheme.colorScheme.onSurface.copy(.38f),
                 fontSize = 12.sp,
             )
+            IconButton(onClick = onInfo, modifier = Modifier.size(34.dp)) {
+                Icon(Icons.Outlined.Info, "Детали сервера", tint = MaterialTheme.colorScheme.onSurface.copy(.52f), modifier = Modifier.size(17.dp))
+            }
             if (server.selected) {
                 Spacer(Modifier.width(10.dp))
                 Icon(Icons.Outlined.Check, null, tint = PulseColors.Success)
             }
         }
+    }
+}
+
+@Composable
+private fun ServerDetailsDialog(server: VpnServer, history: List<Int>, close: () -> Unit) {
+    val loss = if (history.isEmpty()) null else history.count { it < 0 } * 100 / history.size
+    AlertDialog(
+        onDismissRequest = close,
+        confirmButton = { TextButton(onClick = close) { Text("Готово") } },
+        title = { Text(server.tag, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                DetailLine("Доступность", if (server.delayMs != null) "Доступен" else "Нет ответа")
+                DetailLine("Задержка", server.delayMs?.let { "$it мс" } ?: "Не проверена")
+                DetailLine("Протокол", server.type.uppercase())
+                DetailLine("Адрес", server.address ?: "—")
+                DetailLine("Порт", server.port?.toString() ?: "—")
+                DetailLine("История", if (history.isEmpty()) "Пока нет замеров" else "${history.size} замеров")
+                DetailLine("Потери", loss?.let { "$it%" } ?: "—")
+            }
+        },
+    )
+}
+
+@Composable
+private fun DetailLine(label: String, value: String) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        Text(label, color = MaterialTheme.colorScheme.onSurface.copy(.52f), fontSize = 13.sp)
+        Text(value, color = MaterialTheme.colorScheme.onSurface, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -852,6 +957,8 @@ private fun SettingsScreen(state: PulseUiState, viewModel: PulseViewModel, openV
             SettingSwitch(Icons.Outlined.Bolt, "Автоподключение", "Запуск VPN после перезагрузки", state.autoConnect, viewModel::setAutoConnect)
             DividerInset()
             SettingSwitch(Icons.Outlined.Refresh, "Обновлять при запуске", "Проверять удалённые подписки при открытии", state.refreshOnOpen, viewModel::setRefreshOnOpen)
+            DividerInset()
+            SettingSwitch(Icons.Outlined.Speed, "Быстрый сервер", "После проверки выбирать минимальную задержку", state.autoFastest, viewModel::setAutoFastest)
             DividerInset()
             SettingAction(Icons.Outlined.Lock, "Kill switch", "Always-on VPN и блокировка без VPN", openVpnSettings)
             DividerInset()
