@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.delay
 import java.net.InetSocketAddress
 import java.net.Socket
 
@@ -53,7 +54,13 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
     val state: StateFlow<PulseUiState> = _state.asStateFlow()
 
     init {
-        reload(refreshRemote = SettingsManager.refreshOnOpen)
+        // Сначала показываем сохранённые серверы, обновление идёт в фоне.
+        reload()
+        if (SettingsManager.refreshOnOpen) viewModelScope.launch {
+            delay(250)
+            val selected = _state.value.selectedProfile
+            if (selected?.sourceUrl != null && repository.update(selected) is ImportResult.Success) reload()
+        }
         viewModelScope.launch { vpn.status.collect { value -> _state.update { it.copy(vpnStatus = value) } } }
         viewModelScope.launch { vpn.traffic.collect { value -> _state.update { it.copy(traffic = value) } } }
         viewModelScope.launch { vpn.delays.collect { values ->
