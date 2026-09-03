@@ -65,6 +65,7 @@ import androidx.compose.material.icons.outlined.QrCodeScanner
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Route
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Send
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Speed
 import androidx.compose.material.icons.outlined.SwapVert
@@ -123,6 +124,7 @@ import app.pulse.vpn.data.VpnProfile
 import app.pulse.vpn.data.VpnServer
 import io.nekohasekai.sfa.constant.Status
 import kotlinx.coroutines.delay
+import java.net.URI
 import java.text.DateFormat
 import java.util.Date
 import java.util.concurrent.TimeUnit
@@ -163,7 +165,7 @@ fun PulseApp(
             PulseBackdrop(Modifier.fillMaxSize())
             AnimatedContent(targetState = state.screen, label = "screen") { screen ->
                 when (screen) {
-                    Screen.HOME -> HomeScreen(state, requestConnect, viewModel::stopVpn, { viewModel.navigate(Screen.ROUTES) }, { viewModel.navigate(Screen.PROFILES) }, { showImport = true }, viewModel::selectServer)
+                    Screen.HOME -> HomeScreen(state, requestConnect, viewModel::stopVpn, { viewModel.navigate(Screen.ROUTES) }, { viewModel.navigate(Screen.PROFILES) }, { showImport = true }, viewModel::selectServer, { state.selectedProfile?.let(viewModel::updateProfile) })
                     Screen.ROUTES -> RoutesScreen(state, viewModel::selectServer, viewModel::testServers, { showImport = true })
                     Screen.STATS -> StatsScreen(state)
                     Screen.SETTINGS -> SettingsScreen(state, viewModel, openVpnSettings)
@@ -253,6 +255,7 @@ private fun HomeScreen(
     profiles: () -> Unit,
     addProfile: () -> Unit,
     selectServer: (VpnServer) -> Unit,
+    refreshProfile: () -> Unit,
 ) {
     val selected = state.servers.firstOrNull(VpnServer::selected) ?: state.servers.firstOrNull()
     Column(
@@ -330,7 +333,7 @@ private fun HomeScreen(
         )
         state.selectedProfile?.let { profile ->
             Spacer(Modifier.height(12.dp))
-            SubscriptionHeaderCard(profile, profiles)
+            SubscriptionHeaderCard(profile, state.servers, profiles, refreshProfile, state.importing)
         }
         AnimatedVisibility(visible = state.vpnStatus == Status.Started) {
             Row(
@@ -381,12 +384,20 @@ private fun HomeScreen(
 }
 
 @Composable
-private fun SubscriptionHeaderCard(profile: VpnProfile, openProfiles: () -> Unit) {
+private fun SubscriptionHeaderCard(
+    profile: VpnProfile,
+    servers: List<VpnServer>,
+    openProfiles: () -> Unit,
+    refresh: () -> Unit,
+    refreshing: Boolean,
+) {
     val expires = profile.expireAt?.takeIf { it > 0 }
     val daysLeft = expires?.let {
         TimeUnit.MILLISECONDS.toDays((it * 1000L - System.currentTimeMillis()).coerceAtLeast(0L)).toInt()
     }
     val used = (profile.uploadBytes ?: 0L) + (profile.downloadBytes ?: 0L)
+    val ping = servers.mapNotNull(VpnServer::delayMs).minOrNull()
+    val source = profile.sourceUrl?.let { runCatching { URI(it).host }.getOrNull() }
     Column(
         Modifier.fillMaxWidth()
             .clip(RoundedCornerShape(26.dp))
@@ -415,8 +426,20 @@ private fun SubscriptionHeaderCard(profile: VpnProfile, openProfiles: () -> Unit
                     fontSize = 10.sp,
                 )
             }
+            IconButton(onClick = refresh, enabled = !refreshing, modifier = Modifier.size(38.dp)) {
+                if (refreshing) CircularProgressIndicator(Modifier.size(17.dp), color = Color.White, strokeWidth = 2.dp)
+                else Icon(Icons.Outlined.Refresh, "Обновить", tint = Color.White.copy(.7f), modifier = Modifier.size(19.dp))
+            }
             Icon(Icons.Outlined.ChevronRight, null, tint = Color.White.copy(.58f))
         }
+        Spacer(Modifier.height(10.dp))
+        Text(
+            source?.let { "Источник: $it" } ?: "Конфигурация добавлена вручную",
+            color = Color.White.copy(.55f),
+            fontSize = 11.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
         Spacer(Modifier.height(18.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             SubscriptionMeta(
@@ -433,6 +456,11 @@ private fun SubscriptionHeaderCard(profile: VpnProfile, openProfiles: () -> Unit
                 value = profile.totalBytes?.let { "${formatBytes(used)} / ${formatBytes(it)}" } ?: "Без лимита",
                 modifier = Modifier.weight(1f),
             )
+            SubscriptionMeta(
+                title = "ПИНГ",
+                value = ping?.let { "$it мс" } ?: "—",
+                modifier = Modifier.weight(1f),
+            )
         }
         expires?.let {
             Spacer(Modifier.height(12.dp))
@@ -441,6 +469,27 @@ private fun SubscriptionHeaderCard(profile: VpnProfile, openProfiles: () -> Unit
                 color = Color.White.copy(.66f),
                 fontSize = 12.sp,
             )
+        }
+        Spacer(Modifier.height(12.dp))
+        Text(
+            if (servers.isNotEmpty()) "Выберите любую страну ниже — маршрут применится при подключении"
+            else "Добавьте серверы из ссылки подписки",
+            color = Color.White.copy(.62f),
+            fontSize = 12.sp,
+            lineHeight = 17.sp,
+        )
+        Spacer(Modifier.height(10.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            TextButton(onClick = openProfiles, contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp)) {
+                Icon(Icons.Outlined.Info, null, tint = Color.White.copy(.78f), modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(5.dp))
+                Text("Подробнее", color = Color.White.copy(.82f), fontSize = 12.sp)
+            }
+            TextButton(onClick = openProfiles, contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp)) {
+                Icon(Icons.Outlined.Send, null, tint = PulseColors.Cyan, modifier = Modifier.size(17.dp))
+                Spacer(Modifier.width(5.dp))
+                Text("Telegram", color = Color.White.copy(.82f), fontSize = 12.sp)
+            }
         }
     }
 }
