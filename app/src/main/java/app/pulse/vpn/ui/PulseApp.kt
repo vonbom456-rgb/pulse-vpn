@@ -4,6 +4,7 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
@@ -15,6 +16,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -29,6 +32,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
@@ -46,6 +50,8 @@ import androidx.compose.material.icons.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.AutoGraph
 import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.ChevronRight
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ContentPaste
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Devices
@@ -58,6 +64,7 @@ import androidx.compose.material.icons.outlined.PowerSettingsNew
 import androidx.compose.material.icons.outlined.QrCodeScanner
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Route
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Speed
 import androidx.compose.material.icons.outlined.SwapVert
@@ -71,9 +78,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
@@ -90,6 +94,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -115,6 +120,7 @@ import kotlinx.coroutines.delay
 import java.text.DateFormat
 import java.util.Date
 import kotlin.math.max
+import kotlin.math.exp
 
 @Composable
 fun PulseApp(
@@ -166,30 +172,43 @@ fun PulseApp(
 
 @Composable
 private fun PulseNavigation(current: Screen, navigate: (Screen) -> Unit) {
-    NavigationBar(
-        containerColor = MaterialTheme.colorScheme.surface.copy(alpha = .97f),
-        tonalElevation = 0.dp,
-        modifier = Modifier.border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = .06f), RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)),
+    Box(
+        Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background)
+            .navigationBarsPadding().padding(horizontal = 20.dp, vertical = 10.dp),
+        contentAlignment = Alignment.Center,
     ) {
-        listOf(
-            Triple(Screen.HOME, Icons.Outlined.Home, "Главная"),
-            Triple(Screen.ROUTES, Icons.Outlined.Route, "Маршруты"),
-            Triple(Screen.STATS, Icons.Outlined.AutoGraph, "Скорость"),
-            Triple(Screen.SETTINGS, Icons.Outlined.Settings, "Настройки"),
-        ).forEach { (screen, icon, label) ->
-            NavigationBarItem(
-                selected = current == screen,
-                onClick = { navigate(screen) },
-                icon = { Icon(icon, null) },
-                label = { Text(label, fontSize = 11.sp) },
-                colors = NavigationBarItemDefaults.colors(
-                    selectedIconColor = PulseColors.Cyan,
-                    selectedTextColor = MaterialTheme.colorScheme.onSurface,
-                    indicatorColor = PulseColors.Cyan.copy(alpha = .12f),
-                    unselectedIconColor = MaterialTheme.colorScheme.onSurface.copy(alpha = .45f),
-                    unselectedTextColor = MaterialTheme.colorScheme.onSurface.copy(alpha = .45f),
-                ),
-            )
+        Row(
+            Modifier.fillMaxWidth().height(68.dp).clip(CircleShape)
+                .background(MaterialTheme.colorScheme.surface.copy(alpha = .96f))
+                .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = .07f), CircleShape)
+                .padding(horizontal = 10.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            listOf(
+                Triple(Screen.HOME, Icons.Outlined.Home, "Главная"),
+                Triple(Screen.STATS, Icons.Outlined.AutoGraph, "Скорость"),
+                Triple(Screen.ROUTES, Icons.Outlined.Route, "Маршруты"),
+                Triple(Screen.SETTINGS, Icons.Outlined.Tune, "Настройки"),
+            ).forEach { (screen, icon, label) ->
+                val selected = current == screen
+                Box(
+                    Modifier.size(48.dp).clip(CircleShape)
+                        .background(
+                            if (selected) PulseColors.Violet.copy(alpha = .18f)
+                            else Color.Transparent,
+                        )
+                        .clickable { navigate(screen) },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        icon,
+                        label,
+                        tint = if (selected) PulseColors.Cyan
+                        else MaterialTheme.colorScheme.onSurface.copy(alpha = .42f),
+                    )
+                }
+            }
         }
     }
 }
@@ -205,99 +224,218 @@ private fun HomeScreen(
 ) {
     val selected = state.servers.firstOrNull(VpnServer::selected) ?: state.servers.firstOrNull()
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState())
-            .padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 18.dp, start = 22.dp, end = 22.dp, bottom = 24.dp),
+        Modifier.fillMaxSize().padding(
+            top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 14.dp,
+            start = 20.dp,
+            end = 20.dp,
+            bottom = 8.dp,
+        ),
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            PulseMark(42.dp)
-            Spacer(Modifier.width(12.dp))
-            Column { Text("PULSE", fontWeight = FontWeight.Bold, letterSpacing = 2.sp); Text("VPN", color = MaterialTheme.colorScheme.onSurface.copy(alpha = .46f), fontSize = 12.sp) }
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            PulseMark(38.dp)
+            Spacer(Modifier.width(11.dp))
+            Text(
+                "PULSE",
+                style = MaterialTheme.typography.headlineMedium.copy(
+                    brush = Brush.linearGradient(listOf(PulseColors.Violet, PulseColors.Cyan)),
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 2.sp,
+                ),
+            )
             Spacer(Modifier.weight(1f))
-            StatusPill(state.vpnStatus)
-            Spacer(Modifier.width(8.dp))
-            IconButton(onClick = profiles) { Icon(Icons.Outlined.Devices, "Профили") }
+            Box(
+                Modifier.size(44.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surface)
+                    .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = .07f), CircleShape)
+                    .clickable(onClick = profiles),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Outlined.Devices, "Профили", tint = MaterialTheme.colorScheme.onSurface.copy(alpha = .7f))
+            }
         }
 
-        Spacer(Modifier.height(26.dp))
-        PulseConnectButton(state.vpnStatus, if (state.vpnStatus == Status.Started || state.vpnStatus == Status.Starting) disconnect else connect)
-        Spacer(Modifier.height(20.dp))
-
-        if (state.selectedProfile == null) {
-            EmptyCard(
-                icon = Icons.Outlined.Add,
-                title = "Добавьте подписку",
-                text = "Ссылка, QR, VLESS, Clash или sing-box JSON",
-                action = "Добавить",
-                onClick = addProfile,
-            )
-        } else {
-            PremiumCard(onClick = routes) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconTile(Icons.Outlined.Language)
-                    Spacer(Modifier.width(14.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(selected?.tag ?: "Выберите маршрут", style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(
-                            listOfNotNull(selected?.type?.uppercase(), selected?.delayMs?.let { "$it мс" }).joinToString("  ·  ").ifBlank { state.selectedProfile.name },
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = .5f), fontSize = 13.sp,
-                        )
-                    }
-                    Icon(Icons.Outlined.SwapVert, null, tint = MaterialTheme.colorScheme.onSurface.copy(alpha = .45f))
-                }
+        Spacer(Modifier.weight(.7f))
+        AnimatedContent(
+            targetState = state.vpnStatus to (state.selectedProfile != null),
+            label = "connection-title",
+        ) { (status, configured) ->
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    when {
+                        !configured -> "Нужен профиль"
+                        status == Status.Started -> "Защищено"
+                        status == Status.Starting -> "Подключаем"
+                        status == Status.Stopping -> "Завершаем"
+                        else -> "Не подключено"
+                    },
+                    style = MaterialTheme.typography.headlineMedium,
+                )
+                Spacer(Modifier.height(7.dp))
+                Text(
+                    when {
+                        !configured -> "Добавьте ссылку или отсканируйте QR"
+                        status == Status.Started -> "Сигнал стабилен · трафик защищён"
+                        status == Status.Starting -> "Настраиваем безопасный туннель"
+                        else -> "Один импульс до приватности"
+                    },
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = .48f),
+                    fontSize = 14.sp,
+                )
             }
-            Spacer(Modifier.height(12.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                MetricCard("↓", formatSpeed(state.traffic.downloadPerSecond), "СКАЧИВАНИЕ", Modifier.weight(1f), PulseColors.Cyan)
-                MetricCard("↑", formatSpeed(state.traffic.uploadPerSecond), "ОТДАЧА", Modifier.weight(1f), PulseColors.Violet)
+        }
+        PulseConnectButton(
+            status = state.vpnStatus,
+            configured = state.selectedProfile != null,
+            onClick = when {
+                state.selectedProfile == null -> addProfile
+                state.vpnStatus == Status.Started || state.vpnStatus == Status.Starting -> disconnect
+                else -> connect
+            },
+        )
+        AnimatedVisibility(visible = state.vpnStatus == Status.Started) {
+            Row(
+                Modifier.fillMaxWidth().height(56.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                CompactMetric("↓", formatSpeed(state.traffic.downloadPerSecond), "Загрузка")
+                Spacer(Modifier.width(34.dp))
+                CompactMetric("↑", formatSpeed(state.traffic.uploadPerSecond), "Отдача")
+            }
+        }
+        Spacer(Modifier.weight(.55f))
+        PremiumCard(onClick = if (state.selectedProfile == null) addProfile else routes) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconTile(if (state.selectedProfile == null) Icons.Outlined.Add else Icons.Outlined.Route)
+                Spacer(Modifier.width(14.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        selected?.tag ?: state.selectedProfile?.name ?: "Добавить VPN-профиль",
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 16.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Spacer(Modifier.height(3.dp))
+                    Text(
+                        when {
+                            state.selectedProfile == null -> "QR, ссылка или конфигурация"
+                            selected != null -> listOfNotNull(
+                                state.selectedProfile.name,
+                                selected.delayMs?.let { "$it мс" },
+                            ).joinToString(" · ")
+                            else -> "Выберите сервер"
+                        },
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = .45f),
+                        fontSize = 12.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                if (state.selectedProfile != null) {
+                    Box(Modifier.size(7.dp).clip(CircleShape).background(PulseColors.Success))
+                    Spacer(Modifier.width(10.dp))
+                }
+                Icon(Icons.Outlined.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurface.copy(alpha = .32f))
             }
         }
     }
 }
 
 @Composable
-private fun PulseConnectButton(status: Status, onClick: () -> Unit) {
+private fun CompactMetric(icon: String, value: String, label: String) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(icon, color = PulseColors.Success, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+        Spacer(Modifier.width(8.dp))
+        Column {
+            Text(value, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+            Text(label, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .4f), fontSize = 10.sp)
+        }
+    }
+}
+
+@Composable
+private fun PulseConnectButton(status: Status, configured: Boolean, onClick: () -> Unit) {
     val active = status == Status.Started
     val moving = status == Status.Starting || status == Status.Stopping
-    val infinite = rememberInfiniteTransition(label = "pulse")
+    val infinite = rememberInfiniteTransition(label = "heartbeat")
     val phase by infinite.animateFloat(
-        0f, 1f,
-        infiniteRepeatable(tween(if (moving) 850 else 1800, easing = FastOutSlowInEasing), RepeatMode.Restart),
-        label = "phase",
+        0f,
+        1f,
+        infiniteRepeatable(tween(if (moving) 760 else 1320), RepeatMode.Restart),
+        label = "heartbeat-phase",
     )
+    fun bump(center: Float, width: Float, amplitude: Float): Float {
+        val x = (phase - center) / width
+        return amplitude * exp((-x * x).toDouble()).toFloat()
+    }
+    val beat = if (active || moving) {
+        bump(.18f, .055f, 1f) + bump(.31f, .075f, .58f) + bump(.68f, .14f, .18f)
+    } else 0f
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val pressScale by animateFloatAsState(if (pressed) .96f else 1f, tween(140), label = "press")
     val haptic = LocalHapticFeedback.current
-    Box(Modifier.fillMaxWidth().height(300.dp), contentAlignment = Alignment.Center) {
-        Canvas(Modifier.size(290.dp)) {
+
+    Box(Modifier.fillMaxWidth().height(272.dp), contentAlignment = Alignment.Center) {
+        Canvas(Modifier.size(272.dp)) {
             val center = Offset(size.width / 2, size.height / 2)
             repeat(3) { index ->
-                val progress = if (active || moving) (phase + index / 3f) % 1f else index / 3f
+                val base = size.minDimension * (.31f + index * .085f)
                 drawCircle(
-                    color = (if (active) PulseColors.Success else PulseColors.Violet).copy(alpha = if (active || moving) (1f - progress) * .24f else .08f),
-                    radius = size.minDimension * (.24f + .25f * progress), center = center,
-                    style = Stroke(width = 2.dp.toPx()),
+                    color = (if (active) PulseColors.Success else PulseColors.Violet)
+                        .copy(alpha = if (active || moving) .18f - index * .035f else .055f),
+                    radius = base * (1f + beat * (.018f + index * .008f)),
+                    center = center,
+                    style = Stroke(width = 1.25.dp.toPx()),
                 )
             }
         }
         Box(
-            Modifier.size(172.dp).clip(CircleShape)
-                .background(
-                    Brush.radialGradient(
-                        colors = if (active) listOf(Color(0xFF00E6A0), Color(0xFF007F70)) else listOf(Color(0xFF8172F8), Color(0xFF314B9A)),
-                    ),
-                )
-                .border(1.dp, Color.White.copy(alpha = .3f), CircleShape)
-                .clickable {
+            Modifier.size(166.dp).graphicsLayer {
+                scaleX = pressScale * (1f + beat * .012f)
+                scaleY = pressScale * (1f + beat * .012f)
+                shadowElevation = if (active) 30.dp.toPx() else 16.dp.toPx()
+                shape = CircleShape
+                clip = true
+            }.background(
+                Brush.linearGradient(
+                    if (active) listOf(Color(0xFF19C8A1), PulseColors.Success)
+                    else listOf(PulseColors.Violet, PulseColors.Cyan),
+                ),
+            ).border(1.dp, Color.White.copy(alpha = .24f), CircleShape)
+                .clickable(interactionSource = interaction, indication = null) {
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onClick()
+                    if (!moving) onClick()
                 },
             contentAlignment = Alignment.Center,
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                if (moving) CircularProgressIndicator(Modifier.size(32.dp), color = Color.White, strokeWidth = 2.dp)
-                else Icon(Icons.Outlined.PowerSettingsNew, null, tint = Color.White, modifier = Modifier.size(38.dp))
+                if (moving) {
+                    CircularProgressIndicator(Modifier.size(30.dp), color = Color.White, strokeWidth = 2.dp)
+                } else {
+                    Icon(
+                        if (active) Icons.Outlined.AutoGraph
+                        else if (configured) Icons.Outlined.PowerSettingsNew
+                        else Icons.Outlined.Add,
+                        null,
+                        tint = Color.White,
+                        modifier = Modifier.size(32.dp),
+                    )
+                }
                 Spacer(Modifier.height(9.dp))
                 Text(
-                    when (status) { Status.Started -> "ПОДКЛЮЧЕНО"; Status.Starting -> "ПОДКЛЮЧЕНИЕ"; Status.Stopping -> "ОТКЛЮЧЕНИЕ"; else -> "ПОДКЛЮЧИТЬ" },
-                    color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp, letterSpacing = 1.2.sp,
+                    when {
+                        active -> "В ПУЛЬСЕ"
+                        moving && status == Status.Starting -> "СОЕДИНЯЕМ"
+                        moving -> "ЗАВЕРШАЕМ"
+                        configured -> "ПОДКЛЮЧИТЬ"
+                        else -> "ДОБАВИТЬ КЛЮЧ"
+                    },
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 11.sp,
+                    letterSpacing = 1.1.sp,
                 )
             }
         }
@@ -306,19 +444,51 @@ private fun PulseConnectButton(status: Status, onClick: () -> Unit) {
 
 @Composable
 private fun RoutesScreen(state: PulseUiState, select: (VpnServer) -> Unit, test: () -> Unit, add: () -> Unit) {
-    ScreenColumn {
+    var query by remember { mutableStateOf("") }
+    val filtered = remember(state.servers, query) {
+        state.servers.filter { it.tag.contains(query, ignoreCase = true) }
+    }
+    Column(
+        Modifier.fillMaxSize().padding(
+            top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 8.dp,
+            start = 20.dp,
+            end = 20.dp,
+        ),
+    ) {
         ScreenHeader("Маршруты", trailing = {
-            IconButton(onClick = test, enabled = state.servers.isNotEmpty()) { Icon(Icons.Outlined.Speed, "Проверить задержку") }
+            IconButton(onClick = test, enabled = state.servers.isNotEmpty()) {
+                Icon(Icons.Outlined.Speed, "Проверить задержку")
+            }
             IconButton(onClick = add) { Icon(Icons.Outlined.Add, "Добавить") }
         })
-        Text("Выберите выходной узел. Список читается прямо из активной подписки.", color = MaterialTheme.colorScheme.onSurface.copy(alpha = .48f), fontSize = 14.sp)
-        Spacer(Modifier.height(22.dp))
-        when {
-            state.selectedProfile == null -> EmptyCard(Icons.Outlined.Route, "Маршрутов пока нет", "Добавьте подписку — экран не будет бесконечно загружаться.", "Добавить подписку", add)
-            state.servers.isEmpty() -> EmptyCard(Icons.Outlined.Info, "В профиле нет прокси", "В конфигурации не найдены поддерживаемые outbound-серверы.", "Добавить другой", add)
-            else -> state.servers.forEach { server ->
-                ServerRow(server, { select(server) })
-                Spacer(Modifier.height(10.dp))
+        OutlinedTextField(
+            value = query,
+            onValueChange = { query = it },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            shape = CircleShape,
+            leadingIcon = { Icon(Icons.Outlined.Search, null) },
+            placeholder = { Text("Название сервера") },
+        )
+        Spacer(Modifier.height(14.dp))
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            when {
+                state.selectedProfile == null -> item {
+                    EmptyCard(Icons.Outlined.Route, "Маршрутов пока нет", "Добавьте подписку — список появится сразу после импорта.", "Добавить подписку", add)
+                }
+                state.servers.isEmpty() -> item {
+                    EmptyCard(Icons.Outlined.Info, "В профиле нет серверов", "Обновите подписку или добавьте другую.", "Добавить другой", add)
+                }
+                filtered.isEmpty() -> item {
+                    EmptyCard(Icons.Outlined.Search, "Ничего не найдено", "Попробуйте изменить запрос.", "Очистить", { query = "" })
+                }
+                else -> items(filtered, key = VpnServer::tag) { server ->
+                    ServerRow(server, { select(server) })
+                }
             }
         }
     }
@@ -329,17 +499,35 @@ private fun ServerRow(server: VpnServer, onClick: () -> Unit) {
     PremiumCard(onClick = onClick) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(
-                Modifier.size(48.dp).clip(RoundedCornerShape(16.dp)).background(
-                    Brush.linearGradient(listOf(PulseColors.Violet.copy(.35f), PulseColors.Cyan.copy(.22f))),
-                ), contentAlignment = Alignment.Center,
-            ) { Text(server.tag.take(2).uppercase(), fontWeight = FontWeight.Bold, fontSize = 12.sp) }
+                Modifier.size(46.dp).clip(RoundedCornerShape(15.dp)).background(
+                    Brush.linearGradient(listOf(PulseColors.Violet.copy(.28f), PulseColors.Cyan.copy(.16f))),
+                ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Outlined.Language, null, tint = PulseColors.Cyan)
+            }
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
                 Text(server.tag, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(listOfNotNull(server.type.uppercase(), server.address).joinToString(" · "), color = MaterialTheme.colorScheme.onSurface.copy(.45f), fontSize = 12.sp, maxLines = 1)
+                Text(
+                    listOfNotNull(server.type.uppercase(), server.address).joinToString(" · "),
+                    color = MaterialTheme.colorScheme.onSurface.copy(.42f),
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
-            if (server.delayMs != null) Text("${server.delayMs} мс", color = if (server.delayMs < 250) PulseColors.Success else Color(0xFFFFB86B), fontSize = 12.sp)
-            if (server.selected) { Spacer(Modifier.width(10.dp)); Icon(Icons.Outlined.Check, null, tint = PulseColors.Cyan) }
+            if (server.delayMs != null) {
+                Text(
+                    "${server.delayMs} мс",
+                    color = if (server.delayMs < 250) PulseColors.Success else Color(0xFFFFB86B),
+                    fontSize = 12.sp,
+                )
+            }
+            if (server.selected) {
+                Spacer(Modifier.width(10.dp))
+                Icon(Icons.Outlined.Check, null, tint = PulseColors.Success)
+            }
         }
     }
 }
@@ -442,7 +630,7 @@ private fun SettingsScreen(state: PulseUiState, viewModel: PulseViewModel, openV
         SettingsCard { SettingSwitch(Icons.Outlined.Tune, "Тёмная тема", "Фирменная тема Pulse", state.darkTheme, viewModel::setDarkTheme) }
         SectionLabel("О ПРИЛОЖЕНИИ")
         SettingsCard {
-            SettingAction(Icons.Outlined.Info, "Pulse VPN 0.3", "Kotlin · Compose · sing-box", {})
+            SettingAction(Icons.Outlined.Info, "Pulse VPN 0.4", "Kotlin · Compose · sing-box", {})
         }
     }
 }
@@ -499,9 +687,21 @@ private fun ImportDialog(loading: Boolean, onDismiss: () -> Unit, onImport: (Str
         title = { Text("Добавить подписку") },
         text = {
             Column {
-                Text("Вставьте ссылку или полный конфиг. Данные хранятся только на устройстве.", color = MaterialTheme.colorScheme.onSurface.copy(.55f))
+                Text(
+                    "Ссылка провайдера, QR или конфигурация. Pulse автоматически определит формат.",
+                    color = MaterialTheme.colorScheme.onSurface.copy(.52f),
+                    lineHeight = 20.sp,
+                )
                 Spacer(Modifier.height(16.dp))
-                OutlinedTextField(value, { value = it }, modifier = Modifier.fillMaxWidth(), minLines = 3, maxLines = 8, placeholder = { Text("https://… или vless://…") })
+                OutlinedTextField(
+                    value = value,
+                    onValueChange = { value = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 3,
+                    maxLines = 8,
+                    shape = RoundedCornerShape(18.dp),
+                    placeholder = { Text("https://…") },
+                )
                 Spacer(Modifier.height(10.dp))
                 Row {
                     TextButton(onClick = { clipboard.getText()?.text?.let { value = it } }) { Icon(Icons.Outlined.ContentPaste, null); Spacer(Modifier.width(6.dp)); Text("Вставить") }
@@ -534,8 +734,15 @@ private fun StatusPill(status: Status) {
 private fun PremiumCard(modifier: Modifier = Modifier, onClick: (() -> Unit)? = null, content: @Composable ColumnScope.() -> Unit) {
     val clickable = if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier
     Column(
-        modifier.fillMaxWidth().then(clickable).clip(RoundedCornerShape(24.dp))
-            .background(MaterialTheme.colorScheme.surface)
+        modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).then(clickable)
+            .background(
+                Brush.linearGradient(
+                    listOf(
+                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .58f),
+                        MaterialTheme.colorScheme.surface.copy(alpha = .92f),
+                    ),
+                ),
+            )
             .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(.08f), RoundedCornerShape(24.dp))
             .padding(18.dp),
         content = content,
@@ -598,10 +805,19 @@ private fun PulseMark(size: androidx.compose.ui.unit.Dp) {
 @Composable
 private fun InlineBanner(message: String, close: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(MaterialTheme.colorScheme.surfaceVariant)
-            .border(1.dp, PulseColors.Violet.copy(.32f), RoundedCornerShape(18.dp)).clickable(onClick = close).padding(14.dp),
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .98f))
+            .border(1.dp, PulseColors.Violet.copy(.28f), RoundedCornerShape(20.dp))
+            .padding(start = 14.dp, top = 11.dp, bottom = 11.dp, end = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
-    ) { Icon(Icons.Outlined.Info, null, tint = PulseColors.Cyan); Spacer(Modifier.width(10.dp)); Text(message, modifier = Modifier.weight(1f), fontSize = 13.sp) }
+    ) {
+        Icon(Icons.Outlined.Info, null, tint = PulseColors.Cyan, modifier = Modifier.size(21.dp))
+        Spacer(Modifier.width(10.dp))
+        Text(message, modifier = Modifier.weight(1f), fontSize = 13.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
+        IconButton(onClick = close, modifier = Modifier.size(38.dp)) {
+            Icon(Icons.Outlined.Close, "Закрыть", modifier = Modifier.size(19.dp))
+        }
+    }
 }
 
 @Composable private fun SectionLabel(text: String) { Spacer(Modifier.height(24.dp)); Text(text, color = MaterialTheme.colorScheme.onSurface.copy(.38f), fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp, modifier = Modifier.padding(start = 5.dp, bottom = 9.dp)) }
@@ -615,7 +831,7 @@ private fun SettingSwitch(icon: androidx.compose.ui.graphics.vector.ImageVector,
 
 @Composable
 private fun SettingAction(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, subtitle: String, click: () -> Unit) {
-    Row(Modifier.fillMaxWidth().clickable(onClick = click).padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) { Icon(icon, null, tint = PulseColors.Cyan); Spacer(Modifier.width(16.dp)); Column(Modifier.weight(1f)) { Text(title, fontWeight = FontWeight.Medium); Text(subtitle, color = MaterialTheme.colorScheme.onSurface.copy(.42f), fontSize = 12.sp) }; Icon(Icons.Outlined.ArrowBack, null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurface.copy(.25f)) }
+    Row(Modifier.fillMaxWidth().clickable(onClick = click).padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) { Icon(icon, null, tint = PulseColors.Cyan); Spacer(Modifier.width(16.dp)); Column(Modifier.weight(1f)) { Text(title, fontWeight = FontWeight.Medium); Text(subtitle, color = MaterialTheme.colorScheme.onSurface.copy(.42f), fontSize = 12.sp) }; Icon(Icons.Outlined.ChevronRight, null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurface.copy(.25f)) }
 }
 
 @Composable

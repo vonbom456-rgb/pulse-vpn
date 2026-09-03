@@ -18,7 +18,11 @@ import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
 import java.util.UUID
 
-class ProfileRepository(private val context: Context, private val importer: SubscriptionImporter = SubscriptionImporter()) {
+class ProfileRepository(
+    private val context: Context,
+    importer: SubscriptionImporter? = null,
+) {
+    private val importer = importer ?: SubscriptionImporter(SubscriptionIdentityProvider(context)::current)
     private val json = Json { ignoreUnknownKeys = true; prettyPrint = true }
     private val root = File(context.filesDir, "profiles").apply { mkdirs() }
     private val preferences = context.getSharedPreferences("pulse_profiles", Context.MODE_PRIVATE)
@@ -89,7 +93,13 @@ class ProfileRepository(private val context: Context, private val importer: Subs
             val type = item.value("type")
             if (type in setOf("direct", "block", "dns", "selector", "urltest")) return@mapNotNull null
             val tag = item.value("tag").ifBlank { type.uppercase() }
-            VpnServer(tag, type, item.value("server").ifBlank { null }, item["server_port"]?.jsonPrimitive?.intOrNull, tag == selected)
+            val address = item.value("server").ifBlank { null }
+            if (
+                tag.startsWith("❌") ||
+                address?.startsWith("error.", ignoreCase = true) == true ||
+                tag.contains("отсутствуют данные", ignoreCase = true)
+            ) return@mapNotNull null
+            VpnServer(tag, type, address, item["server_port"]?.jsonPrimitive?.intOrNull, tag == selected)
         }
     }
 

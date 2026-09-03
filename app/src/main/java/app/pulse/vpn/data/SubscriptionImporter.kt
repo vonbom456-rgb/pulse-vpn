@@ -26,6 +26,7 @@ import java.util.Base64
 import java.util.concurrent.TimeUnit
 
 class SubscriptionImporter(
+    private val identityProvider: () -> SubscriptionIdentity = { SubscriptionIdentity() },
     private val client: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(12, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
@@ -40,8 +41,8 @@ class SubscriptionImporter(
         val trimmed = input.trim()
         require(trimmed.isNotBlank()) { "Вставьте ссылку или конфигурацию" }
         val remote = trimmed.startsWith("https://") || trimmed.startsWith("http://")
-        val response = if (remote) fetch(trimmed) else Fetched(trimmed, null, SubscriptionUserInfo())
-        val normalized = normalize(response.body)
+        val response = if (remote) fetchCompatible(trimmed) else Fetched(trimmed, null, SubscriptionUserInfo())
+        val normalized = response.normalized ?: normalize(response.body)
         ImportedProfile(
             name = response.name ?: guessName(trimmed, normalized),
             config = normalized,
@@ -50,19 +51,53 @@ class SubscriptionImporter(
         )
     }
 
-    private fun fetch(url: String): Fetched {
+    private fun fetchCompatible(url: String): Fetched {
+        val identity = identityProvider()
+        val timestamp = System.currentTimeMillis() / 1000
+        val pulseAgent = "PulseVPN/0.4.0 (Android; sing-box)"
+        val agents = if (url.contains("/redirect/auto", ignoreCase = true)) {
+            listOf("Happ/4.6.0/android/$timestamp", pulseAgent, "sing-box/v1.13.15")
+        } else {
+            listOf(pulseAgent, "Happ/4.6.0/android/$timestamp", "sing-box/v1.13.15")
+        }
+        var lastError: Throwable? = null
+        agents.distinct().forEach { userAgent ->
+            runCatching {
+                val fetched = fetch(url, userAgent, identity)
+                fetched.copy(normalized = normalize(fetched.body))
+            }.onSuccess { return it }.onFailure { lastError = it }
+        }
+        throw IllegalArgumentException(
+            lastError?.message ?: "Не удалось прочитать подписку. Проверьте ссылку и доступность провайдера.",
+        )
+    }
+
+    private fun fetch(url: String, userAgent: String, identity: SubscriptionIdentity): Fetched {
         val request = Request.Builder().url(url)
-            .header("User-Agent", "PulseVPN/0.3 sing-box Android")
+            .header("User-Agent", userAgent)
             .header("Accept", "application/json,text/plain,*/*")
+            .apply {
+                if (identity.hwid.isNotBlank()) header("X-HWID", identity.hwid)
+                if (identity.deviceOs.isNotBlank()) header("X-Device-OS", identity.deviceOs)
+                if (identity.osVersion.isNotBlank()) header("X-Ver-OS", identity.osVersion)
+                if (identity.deviceModel.isNotBlank()) header("X-Device-Model", identity.deviceModel)
+                header("X-App-Version", "0.4.0")
+            }
             .build()
         client.newCall(request).execute().use { response ->
+            if (response.header("x-hwid-max-devices-reached").toBoolean()) {
+                error("Достигнут лимит устройств подписки. Удалите старое устройство у провайдера.")
+            }
+            if (response.header("x-hwid-not-supported").toBoolean()) {
+                error("Провайдер не принял идентификатор устройства. Обновите приложение или обратитесь в поддержку.")
+            }
             if (!response.isSuccessful) error("Провайдер вернул HTTP ${response.code}")
             val body = response.body.string().trimStart('\uFEFF')
             if (body.isBlank()) error("Подписка вернула пустой ответ")
             val disposition = response.header("content-disposition").orEmpty()
             val profileTitle = response.header("profile-title")
                 ?: Regex("filename\\*=UTF-8''([^;]+)", RegexOption.IGNORE_CASE).find(disposition)?.groupValues?.get(1)?.let(::decode)
-            return Fetched(body, profileTitle, parseUserInfo(response.header("subscription-userinfo")))
+            return Fetched(body, decodeProfileTitle(profileTitle), parseUserInfo(response.header("subscription-userinfo")))
         }
     }
 
@@ -73,12 +108,30 @@ class SubscriptionImporter(
         val decoded = decodeBase64(text)
         if (decoded != null && decoded != text) {
             parseSingBox(decoded)?.let { return ensureRuntimeConfig(it) }
-            parseUriLines(decoded)?.let { return buildConfig(it) }
+            parseUriLines(decoded)?.let { return buildConfig(validateProxies(it)) }
         }
 
-        parseUriLines(text)?.let { return buildConfig(it) }
-        parseClash(text)?.let { return buildConfig(it) }
-        error("Формат не распознан. Поддерживаются sing-box JSON, VLESS, VMess, Trojan, Shadowsocks, Hysteria2, TUIC и Clash YAML")
+        parseUriLines(text)?.let { return buildConfig(validateProxies(it)) }
+        parseClash(text)?.let { return buildConfig(validateProxies(it)) }
+        error("Не удалось прочитать подписку. Проверьте ссылку или совместимость провайдера.")
+    }
+
+    private fun validateProxies(proxies: List<JsonObject>): List<JsonObject> {
+        val valid = proxies.filterNot(::isProviderError)
+        if (valid.isNotEmpty()) return valid
+        if (proxies.isNotEmpty()) {
+            error("Провайдер не выдал серверы. Проверьте лимит устройств или обновите подписку.")
+        }
+        error("Подписка не содержит серверов")
+    }
+
+    private fun isProviderError(item: JsonObject): Boolean {
+        val tag = item.string("tag").lowercase()
+        val server = item.string("server").lowercase()
+        return tag.startsWith("❌") ||
+            server.startsWith("error.") ||
+            listOf("отсутствуют данные", "missing device", "device limit", "hwid", "лимит устройств")
+                .any(tag::contains)
     }
 
     private fun parseSingBox(text: String): JsonObject? = runCatching {
@@ -196,6 +249,15 @@ class SubscriptionImporter(
     private fun ensureRuntimeConfig(root: JsonObject): String {
         val map = root.toMutableMap()
         val outbounds = (root["outbounds"] as? JsonArray)?.toMutableList() ?: mutableListOf()
+        val providerErrors = outbounds.filterIsInstance<JsonObject>().filter(::isProviderError)
+        outbounds.removeAll(providerErrors.toSet())
+        val originalProxyCount = outbounds.count { element ->
+            val type = (element as? JsonObject)?.string("type").orEmpty()
+            type !in setOf("direct", "block", "dns", "selector", "urltest")
+        }
+        if (providerErrors.isNotEmpty() && originalProxyCount == 0) {
+            error("Провайдер не выдал серверы. Проверьте лимит устройств или обновите подписку.")
+        }
         val proxyTags = outbounds.mapNotNull { element ->
             val item = element as? JsonObject ?: return@mapNotNull null
             val type = item.string("type")
@@ -290,7 +352,21 @@ class SubscriptionImporter(
         }
     }.getOrDefault("Pulse profile")
 
+    private fun decodeProfileTitle(value: String?): String? {
+        val title = value?.trim()?.takeIf(String::isNotBlank) ?: return null
+        val urlDecoded = decode(title)
+        val base64Decoded = decodeBase64(urlDecoded)?.takeIf { decoded ->
+            decoded.length in 1..80 && decoded.none { it == '\n' || it == '\r' }
+        }
+        return (base64Decoded ?: urlDecoded).trim().take(80)
+    }
+
     private fun JsonObject.string(key: String) = this[key]?.jsonPrimitive?.contentOrNull.orEmpty()
     private fun decode(value: String) = runCatching { URLDecoder.decode(value, StandardCharsets.UTF_8.name()) }.getOrDefault(value)
-    private data class Fetched(val body: String, val name: String?, val userInfo: SubscriptionUserInfo)
+    private data class Fetched(
+        val body: String,
+        val name: String?,
+        val userInfo: SubscriptionUserInfo,
+        val normalized: String? = null,
+    )
 }

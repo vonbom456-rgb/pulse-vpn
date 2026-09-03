@@ -52,7 +52,7 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
     val state: StateFlow<PulseUiState> = _state.asStateFlow()
 
     init {
-        reload()
+        reload(refreshRemote = true)
         viewModelScope.launch { vpn.status.collect { value -> _state.update { it.copy(vpnStatus = value) } } }
         viewModelScope.launch { vpn.traffic.collect { value -> _state.update { it.copy(traffic = value) } } }
         viewModelScope.launch { vpn.delays.collect { values ->
@@ -69,9 +69,17 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun reload() = viewModelScope.launch {
-        val profiles = repository.profiles()
-        val selected = profiles.firstOrNull { it.id == repository.selectedId() }
+    fun reload(refreshRemote: Boolean = false) = viewModelScope.launch {
+        var profiles = repository.profiles()
+        var selected = profiles.firstOrNull { it.id == repository.selectedId() }
+        if (refreshRemote && selected?.sourceUrl != null) {
+            val current = selected
+            val refreshed = repository.update(current)
+            if (refreshed is ImportResult.Success) {
+                profiles = repository.profiles()
+                selected = profiles.firstOrNull { it.id == refreshed.profile.id }
+            }
+        }
         if (selected != null) repository.select(selected)
         val servers = repository.servers(selected)
         _state.update { it.copy(profiles = profiles, selectedProfile = selected, servers = servers) }
