@@ -129,6 +129,7 @@ import app.pulse.vpn.core.SettingsManager
 import app.pulse.vpn.data.ProfileRepository
 import app.pulse.vpn.data.VpnProfile
 import app.pulse.vpn.data.VpnServer
+import app.pulse.vpn.data.isInfoMetadata
 import io.nekohasekai.sfa.constant.Status
 import kotlinx.coroutines.delay
 import java.net.URI
@@ -383,11 +384,11 @@ private fun HomeScreen(
             }
         } else if (subscriptionExpanded) {
             Text("СЕРВЕРЫ", modifier = Modifier.fillMaxWidth().padding(start = 4.dp, bottom = 8.dp), color = MaterialTheme.colorScheme.onSurface.copy(.38f), fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
-            state.servers.forEach { server ->
+            state.servers.filterNot(VpnServer::isInfoMetadata).forEach { server ->
                 HomeServerRow(server, selectServer)
                 Spacer(Modifier.height(8.dp))
             }
-            if (state.servers.isEmpty()) {
+            if (state.servers.none { !it.isInfoMetadata() }) {
                 PremiumCard(onClick = routes) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         IconTile(Icons.Outlined.Route)
@@ -432,6 +433,7 @@ private fun SubscriptionHeaderCard(
     val providerDescription = infoServer?.tag?.let(::extractInfoDescription)
     val infoLink = extractHttpLink(infoServer?.tag) ?: sourceLink?.let(::rootLink)
     val telegramLink = extractTelegramLink(infoServer?.tag)
+    val routeServers = servers.filterNot(VpnServer::isInfoMetadata)
     Column(
         Modifier.fillMaxWidth()
             .clip(RoundedCornerShape(26.dp))
@@ -459,7 +461,7 @@ private fun SubscriptionHeaderCard(
                 if (refreshing) CircularProgressIndicator(Modifier.size(17.dp), color = Color.White, strokeWidth = 2.dp)
                 else Icon(Icons.Outlined.Refresh, "Обновить", tint = Color.White.copy(.7f), modifier = Modifier.size(19.dp))
             }
-            val canPing = servers.isNotEmpty() && !testingPings
+            val canPing = routeServers.isNotEmpty() && !testingPings
             Row(
                 Modifier.height(36.dp)
                     .clip(RoundedCornerShape(12.dp))
@@ -479,7 +481,7 @@ private fun SubscriptionHeaderCard(
                     when {
                         testingPings -> "Проверка"
                         bestPing != null -> "${bestPing} мс"
-                        servers.isNotEmpty() -> "Пинг"
+                        routeServers.isNotEmpty() -> "Пинг"
                         else -> "—"
                     },
                     color = Color.White.copy(alpha = if (canPing || testingPings) .88f else .45f),
@@ -584,7 +586,7 @@ private fun SubscriptionHeaderCard(
                         fontWeight = FontWeight.SemiBold,
                     )
                     Text(
-                        if (servers.isNotEmpty()) "Серверов в подписке: ${servers.size}" else "Серверы не найдены",
+                        if (routeServers.isNotEmpty()) "Серверов в подписке: ${routeServers.size}" else "Серверы не найдены",
                         color = Color.White.copy(.56f),
                         fontSize = 11.sp,
                     )
@@ -818,7 +820,7 @@ private fun RoutesScreen(
     var query by remember { mutableStateOf("") }
     var details by remember { mutableStateOf<VpnServer?>(null) }
     val filtered = remember(state.servers, query) {
-        state.servers.filter { it.tag.contains(query, ignoreCase = true) }
+        state.servers.filterNot(VpnServer::isInfoMetadata).filter { it.tag.contains(query, ignoreCase = true) }
     }
     Column(
         Modifier.fillMaxSize().padding(
@@ -828,7 +830,7 @@ private fun RoutesScreen(
         ),
     ) {
         ScreenHeader("Маршруты", trailing = {
-            TextButton(onClick = test, enabled = state.servers.isNotEmpty() && !state.testingServers) {
+            TextButton(onClick = test, enabled = state.servers.any { !it.isInfoMetadata() } && !state.testingServers) {
                 if (state.testingServers) {
                     CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
                 } else {
@@ -864,7 +866,7 @@ private fun RoutesScreen(
                     state.selectedProfile == null -> item {
                         EmptyCard(Icons.Outlined.Route, "Маршрутов пока нет", "Добавьте подписку — список появится сразу после импорта.", "Добавить подписку", add)
                     }
-                    state.servers.isEmpty() -> item {
+                    state.servers.none { !it.isInfoMetadata() } -> item {
                         EmptyCard(Icons.Outlined.Info, "В профиле нет серверов", "Обновите подписку или добавьте другую.", "Добавить другой", add)
                     }
                     filtered.isEmpty() -> item {

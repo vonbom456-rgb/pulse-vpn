@@ -10,6 +10,7 @@ import app.pulse.vpn.data.ImportResult
 import app.pulse.vpn.data.ProfileRepository
 import app.pulse.vpn.data.VpnProfile
 import app.pulse.vpn.data.VpnServer
+import app.pulse.vpn.data.isInfoMetadata
 import io.nekohasekai.libbox.Libbox
 import io.nekohasekai.sfa.constant.Status
 import kotlinx.coroutines.Dispatchers
@@ -153,7 +154,7 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
             vpn.urlTest("Proxy")
             return@launch
         }
-        val snapshot = _state.value.servers
+        val snapshot = _state.value.servers.filterNot(VpnServer::isInfoMetadata)
         if (snapshot.isEmpty()) return@launch
         _state.update { it.copy(testingServers = true, message = "Проверяем задержку всех серверов…") }
         val measured = coroutineScope {

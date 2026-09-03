@@ -23,6 +23,10 @@ data class VpnServer(
     val delayMs: Int? = null,
 )
 
+/** Provider metadata outbound (description/contact), never a selectable route. */
+fun VpnServer.isInfoMetadata(): Boolean =
+    tag.contains("info", ignoreCase = true) || address?.contains("info.", ignoreCase = true) == true
+
 data class ImportedProfile(
     val name: String,
     val config: String,
