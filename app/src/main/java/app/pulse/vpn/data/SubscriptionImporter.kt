@@ -61,7 +61,7 @@ class SubscriptionImporter(
             if (body.isBlank()) error("Подписка вернула пустой ответ")
             val disposition = response.header("content-disposition").orEmpty()
             val profileTitle = response.header("profile-title")
-                ?: Regex("filename\*=UTF-8''([^;]+)", RegexOption.IGNORE_CASE).find(disposition)?.groupValues?.get(1)?.let(::decode)
+                ?: Regex("filename\\*=UTF-8''([^;]+)", RegexOption.IGNORE_CASE).find(disposition)?.groupValues?.get(1)?.let(::decode)
             return Fetched(body, profileTitle, parseUserInfo(response.header("subscription-userinfo")))
         }
     }
@@ -234,7 +234,7 @@ class SubscriptionImporter(
 
     private fun tunInbound() = buildJsonObject {
         put("type", "tun"); put("tag", "tun-in")
-        put("address", buildJsonArray { add("172.19.0.1/30"); add("fdfe:dcba:9876::1/126") })
+        put("address", buildJsonArray { add(JsonPrimitive("172.19.0.1/30")); add(JsonPrimitive("fdfe:dcba:9876::1/126")) })
         put("auto_route", true); put("strict_route", true)
     }
 
@@ -258,7 +258,7 @@ class SubscriptionImporter(
             q["host"]?.let { put("headers", buildJsonObject { put("Host", it) }) }
         }
         "grpc" -> buildJsonObject { put("type", "grpc"); q["serviceName"]?.let { put("service_name", it) } }
-        "http", "h2" -> buildJsonObject { put("type", "http"); q["path"]?.let { put("path", it) }; q["host"]?.let { put("host", buildJsonArray { add(it) }) } }
+        "http", "h2" -> buildJsonObject { put("type", "http"); q["path"]?.let { put("path", it) }; q["host"]?.let { host -> put("host", buildJsonArray { add(JsonPrimitive(host)) }) } }
         else -> null
     }
 

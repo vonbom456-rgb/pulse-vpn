@@ -21,10 +21,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
-import androidx.compose.foundation.layout.calculateBottomPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -326,7 +326,7 @@ private fun RoutesScreen(state: PulseUiState, select: (VpnServer) -> Unit, test:
 
 @Composable
 private fun ServerRow(server: VpnServer, onClick: () -> Unit) {
-    PremiumCard(onClick) {
+    PremiumCard(onClick = onClick) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(
                 Modifier.size(48.dp).clip(RoundedCornerShape(16.dp)).background(
@@ -575,7 +575,7 @@ private fun ScreenColumn(content: @Composable ColumnScope.() -> Unit) {
 }
 
 @Composable
-private fun ScreenHeader(title: String, back: (() -> Unit)? = null, trailing: @Composable Row.() -> Unit = {}) {
+private fun ScreenHeader(title: String, back: (() -> Unit)? = null, trailing: @Composable RowScope.() -> Unit = {}) {
     Row(Modifier.fillMaxWidth().height(58.dp), verticalAlignment = Alignment.CenterVertically) {
         if (back != null) IconButton(onClick = back) { Icon(Icons.Outlined.ArrowBack, null) }
         Text(title, style = MaterialTheme.typography.headlineLarge, modifier = Modifier.weight(1f))
