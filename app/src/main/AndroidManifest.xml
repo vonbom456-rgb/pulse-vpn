@@ -13,6 +13,9 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" tools:ignore="QueryAllPackagesPermission" />
 
+    <!-- QR-импорт доступен при наличии камеры, но приложение работает и без неё. -->
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+
     <application
         android:name=".PulseApplication"
         android:allowBackup="false"
