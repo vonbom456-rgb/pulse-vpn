@@ -731,6 +731,7 @@ private fun PulseConnectButton(status: Status, configured: Boolean, onClick: () 
 }
 
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 private fun RoutesScreen(
     state: PulseUiState,
     select: (VpnServer) -> Unit,
