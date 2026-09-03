@@ -134,6 +134,12 @@ fun PulseApp(
 ) {
     val state by viewModel.state.collectAsState()
     var showImport by remember { mutableStateOf(false) }
+    LaunchedEffect(state.message) {
+        if (state.message?.startsWith("Подписка добавлена") == true) {
+            delay(3200)
+            viewModel.clearMessage()
+        }
+    }
     if (showImport) ImportDialog(
         loading = state.importing,
         onDismiss = { if (!state.importing) showImport = false },
@@ -165,7 +171,7 @@ fun PulseApp(
                 visible = state.message != null,
                 enter = fadeIn() + scaleIn(initialScale = .96f),
                 exit = fadeOut(),
-                modifier = Modifier.align(Alignment.TopCenter).padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + if (state.screen == Screen.HOME) 72.dp else 12.dp, start = 20.dp, end = 20.dp),
+                modifier = Modifier.align(Alignment.TopCenter).padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + if (state.screen == Screen.HOME) 148.dp else 12.dp, start = 20.dp, end = 20.dp),
             ) {
                 state.message?.let { InlineBanner(it, viewModel::clearMessage) }
             }
