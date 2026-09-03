@@ -17,6 +17,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
@@ -33,6 +36,7 @@ data class PulseUiState(
     val vpnStatus: Status = Status.Stopped,
     val traffic: TrafficSnapshot = TrafficSnapshot(),
     val importing: Boolean = false,
+    val testingServers: Boolean = false,
     val message: String? = null,
     val darkTheme: Boolean = SettingsManager.darkTheme,
     val autoConnect: Boolean = SettingsManager.autoConnect,
@@ -147,17 +151,22 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
             vpn.urlTest("Proxy")
             return@launch
         }
-        val measured = withContext(Dispatchers.IO) {
-            _state.value.servers.map { server ->
-                val delay = if (server.address != null && server.port != null) runCatching {
-                    val started = System.nanoTime()
-                    Socket().use { it.connect(InetSocketAddress(server.address, server.port), 1600) }
-                    ((System.nanoTime() - started) / 1_000_000).toInt()
-                }.getOrNull() else null
-                server.copy(delayMs = delay)
-            }
-        }
-        _state.update { it.copy(servers = measured) }
+        val snapshot = _state.value.servers
+        if (snapshot.isEmpty()) return@launch
+        _state.update { it.copy(testingServers = true, message = "Проверяем задержку всех серверов…") }
+        val measured = coroutineScope {
+            snapshot.map { server ->
+                async(Dispatchers.IO) {
+                    val delay = if (server.address != null && server.port != null) runCatching {
+                        val started = System.nanoTime()
+                        Socket().use { it.connect(InetSocketAddress(server.address, server.port), 1600) }
+                        ((System.nanoTime() - started) / 1_000_000).toInt()
+                    }.getOrNull() else null
+                    server.copy(delayMs = delay)
+                }
+            }.awaitAll()
+        }.sortedWith(compareBy<VpnServer> { it.delayMs == null }.thenBy { it.delayMs ?: Int.MAX_VALUE })
+        _state.update { it.copy(servers = measured, testingServers = false, message = "Проверено серверов: ${measured.count { server -> server.delayMs != null }} из ${measured.size}") }
     }
 
     fun startVpn() {

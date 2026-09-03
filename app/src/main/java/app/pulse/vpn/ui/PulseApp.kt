@@ -58,6 +58,8 @@ import androidx.compose.material.icons.outlined.Devices
 import androidx.compose.material.icons.outlined.Dns
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.KeyboardArrowDown
+import androidx.compose.material.icons.outlined.KeyboardArrowUp
 import androidx.compose.material.icons.outlined.Language
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.PowerSettingsNew
@@ -92,6 +94,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.viewinterop.AndroidView
 import android.widget.ImageView
@@ -126,6 +129,8 @@ import io.nekohasekai.sfa.constant.Status
 import kotlinx.coroutines.delay
 import java.net.URI
 import java.text.DateFormat
+import java.nio.charset.StandardCharsets
+import java.util.Base64
 import java.util.Date
 import java.util.concurrent.TimeUnit
 import kotlin.math.max
@@ -258,6 +263,7 @@ private fun HomeScreen(
     refreshProfile: () -> Unit,
 ) {
     val selected = state.servers.firstOrNull(VpnServer::selected) ?: state.servers.firstOrNull()
+    var subscriptionExpanded by rememberSaveable { mutableStateOf(true) }
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(
             top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 14.dp,
@@ -333,7 +339,15 @@ private fun HomeScreen(
         )
         state.selectedProfile?.let { profile ->
             Spacer(Modifier.height(12.dp))
-            SubscriptionHeaderCard(profile, state.servers, profiles, refreshProfile, state.importing)
+            SubscriptionHeaderCard(
+                profile = profile,
+                servers = state.servers,
+                openProfiles = profiles,
+                refresh = refreshProfile,
+                refreshing = state.importing,
+                expanded = subscriptionExpanded,
+                toggleExpanded = { subscriptionExpanded = !subscriptionExpanded },
+            )
         }
         AnimatedVisibility(visible = state.vpnStatus == Status.Started) {
             Row(
@@ -390,13 +404,15 @@ private fun SubscriptionHeaderCard(
     openProfiles: () -> Unit,
     refresh: () -> Unit,
     refreshing: Boolean,
+    expanded: Boolean,
+    toggleExpanded: () -> Unit,
 ) {
+    val profileName = displayProfileName(profile)
     val expires = profile.expireAt?.takeIf { it > 0 }
     val daysLeft = expires?.let {
         TimeUnit.MILLISECONDS.toDays((it * 1000L - System.currentTimeMillis()).coerceAtLeast(0L)).toInt()
     }
     val used = (profile.uploadBytes ?: 0L) + (profile.downloadBytes ?: 0L)
-    val ping = servers.mapNotNull(VpnServer::delayMs).minOrNull()
     val source = profile.sourceUrl?.let { runCatching { URI(it).host }.getOrNull() }
     Column(
         Modifier.fillMaxWidth()
@@ -414,7 +430,7 @@ private fun SubscriptionHeaderCard(
             PulseMark(42.dp)
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Text(profile.name, fontWeight = FontWeight.Bold, fontSize = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(profileName, fontWeight = FontWeight.Bold, fontSize = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(
                     if (profile.sourceUrl != null) "Удалённая подписка" else "Локальная конфигурация",
                     color = Color.White.copy(.62f),
@@ -430,71 +446,86 @@ private fun SubscriptionHeaderCard(
                 if (refreshing) CircularProgressIndicator(Modifier.size(17.dp), color = Color.White, strokeWidth = 2.dp)
                 else Icon(Icons.Outlined.Refresh, "Обновить", tint = Color.White.copy(.7f), modifier = Modifier.size(19.dp))
             }
-            Icon(Icons.Outlined.ChevronRight, null, tint = Color.White.copy(.58f))
-        }
-        Spacer(Modifier.height(10.dp))
-        Text(
-            source?.let { "Источник: $it" } ?: "Конфигурация добавлена вручную",
-            color = Color.White.copy(.55f),
-            fontSize = 11.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Spacer(Modifier.height(10.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(
-                onClick = openProfiles,
-                modifier = Modifier.size(36.dp).clip(CircleShape).background(Color.White.copy(.10f)),
-            ) {
-                Icon(Icons.Outlined.Info, "Информация о подписке", tint = Color.White.copy(.82f), modifier = Modifier.size(18.dp))
-            }
-            Spacer(Modifier.width(8.dp))
-            IconButton(
-                onClick = openProfiles,
-                modifier = Modifier.size(36.dp).clip(CircleShape).background(PulseColors.Cyan.copy(.15f)),
-            ) {
-                Icon(Icons.Outlined.Send, "Telegram", tint = PulseColors.Cyan, modifier = Modifier.size(18.dp))
+            IconButton(onClick = toggleExpanded, modifier = Modifier.size(38.dp)) {
+                Icon(
+                    if (expanded) Icons.Outlined.KeyboardArrowUp else Icons.Outlined.KeyboardArrowDown,
+                    if (expanded) "Свернуть" else "Развернуть",
+                    tint = Color.White.copy(.72f),
+                )
             }
         }
-        Spacer(Modifier.height(18.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            SubscriptionMeta(
-                title = "СРОК",
-                value = when {
-                    daysLeft == null -> "Без даты"
-                    daysLeft == 0 -> "Истёк"
-                    else -> "$daysLeft дн."
-                },
-                modifier = Modifier.weight(1f),
-            )
-            SubscriptionMeta(
-                title = "ТРАФИК",
-                value = profile.totalBytes?.let { "${formatBytes(used)} / ${formatBytes(it)}" } ?: "Без лимита",
-                modifier = Modifier.weight(1f),
-            )
-            SubscriptionMeta(
-                title = "ПИНГ",
-                value = ping?.let { "$it мс" } ?: "—",
-                modifier = Modifier.weight(1f),
-            )
+        AnimatedVisibility(visible = expanded, enter = fadeIn() + scaleIn(), exit = fadeOut()) {
+            Column {
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    source?.let { "Источник: $it" } ?: "Конфигурация добавлена вручную",
+                    color = Color.White.copy(.55f),
+                    fontSize = 11.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(10.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(
+                        onClick = openProfiles,
+                        modifier = Modifier.size(36.dp).clip(CircleShape).background(Color.White.copy(.10f)),
+                    ) {
+                        Icon(Icons.Outlined.Info, "Информация о подписке", tint = Color.White.copy(.82f), modifier = Modifier.size(18.dp))
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    IconButton(
+                        onClick = openProfiles,
+                        modifier = Modifier.size(36.dp).clip(CircleShape).background(PulseColors.Cyan.copy(.15f)),
+                    ) {
+                        Icon(Icons.Outlined.Send, "Telegram", tint = PulseColors.Cyan, modifier = Modifier.size(18.dp))
+                    }
+                }
+                Spacer(Modifier.height(18.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SubscriptionMeta(
+                        title = "СРОК",
+                        value = when {
+                            daysLeft == null -> "Без даты"
+                            daysLeft == 0 -> "Истёк"
+                            else -> "$daysLeft дн."
+                        },
+                        modifier = Modifier.weight(1f),
+                    )
+                    SubscriptionMeta(
+                        title = "ТРАФИК",
+                        value = profile.totalBytes?.let { "${formatBytes(used)} / ${formatBytes(it)}" } ?: "Без лимита",
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                expires?.let {
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        "Действует до ${DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(it * 1000L))}",
+                        color = Color.White.copy(.66f),
+                        fontSize = 12.sp,
+                    )
+                }
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    if (servers.isNotEmpty()) "Выберите любую страну ниже — маршрут применится при подключении"
+                    else "Добавьте серверы из ссылки подписки",
+                    color = Color.White.copy(.62f),
+                    fontSize = 12.sp,
+                    lineHeight = 17.sp,
+                )
+            }
         }
-        expires?.let {
-            Spacer(Modifier.height(12.dp))
-            Text(
-                "Действует до ${DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(it * 1000L))}",
-                color = Color.White.copy(.66f),
-                fontSize = 12.sp,
-            )
-        }
-        Spacer(Modifier.height(12.dp))
-        Text(
-            if (servers.isNotEmpty()) "Выберите любую страну ниже — маршрут применится при подключении"
-            else "Добавьте серверы из ссылки подписки",
-            color = Color.White.copy(.62f),
-            fontSize = 12.sp,
-            lineHeight = 17.sp,
-        )
     }
+}
+
+private fun displayProfileName(profile: VpnProfile): String {
+    val raw = profile.name.trim()
+    if (!raw.startsWith("base64:", ignoreCase = true)) return raw.ifBlank { "VPN подписка" }
+    val encoded = raw.substringAfter(':').filterNot(Char::isWhitespace)
+    val padded = encoded + "=".repeat((4 - encoded.length % 4) % 4)
+    val decoded = runCatching { String(Base64.getDecoder().decode(padded), StandardCharsets.UTF_8) }
+        .getOrNull()?.trim()
+    return decoded?.takeIf { it.isNotBlank() } ?: profile.sourceUrl?.let { runCatching { URI(it).host }.getOrNull() } ?: "VPN подписка"
 }
 
 @Composable
@@ -655,8 +686,14 @@ private fun RoutesScreen(state: PulseUiState, select: (VpnServer) -> Unit, test:
         ),
     ) {
         ScreenHeader("Маршруты", trailing = {
-            IconButton(onClick = test, enabled = state.servers.isNotEmpty()) {
-                Icon(Icons.Outlined.Speed, "Проверить задержку")
+            TextButton(onClick = test, enabled = state.servers.isNotEmpty() && !state.testingServers) {
+                if (state.testingServers) {
+                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                } else {
+                    Icon(Icons.Outlined.Speed, "Проверить задержку", modifier = Modifier.size(18.dp))
+                }
+                Spacer(Modifier.width(5.dp))
+                Text(if (state.testingServers) "Проверяем…" else "Проверить все", fontSize = 12.sp)
             }
             IconButton(onClick = add) { Icon(Icons.Outlined.Add, "Добавить") }
         })
@@ -716,13 +753,12 @@ private fun ServerRow(server: VpnServer, onClick: () -> Unit) {
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            if (server.delayMs != null) {
-                Text(
-                    "${server.delayMs} мс",
-                    color = if (server.delayMs < 250) PulseColors.Success else Color(0xFFFFB86B),
-                    fontSize = 12.sp,
-                )
-            }
+            Text(
+                server.delayMs?.let { "${it} мс" } ?: "—",
+                color = server.delayMs?.let { if (it < 250) PulseColors.Success else Color(0xFFFFB86B) }
+                    ?: MaterialTheme.colorScheme.onSurface.copy(.38f),
+                fontSize = 12.sp,
+            )
             if (server.selected) {
                 Spacer(Modifier.width(10.dp))
                 Icon(Icons.Outlined.Check, null, tint = PulseColors.Success)

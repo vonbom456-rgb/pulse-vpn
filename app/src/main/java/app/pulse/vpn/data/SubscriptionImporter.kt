@@ -355,9 +355,12 @@ class SubscriptionImporter(
     private fun decodeProfileTitle(value: String?): String? {
         val title = value?.trim()?.takeIf(String::isNotBlank) ?: return null
         val urlDecoded = decode(title)
-        val base64Decoded = decodeBase64(urlDecoded)?.takeIf { decoded ->
+        val encodedValue = urlDecoded.removePrefix("base64:").removePrefix("base64,").trim()
+        val base64Decoded = decodeBase64(encodedValue)?.takeIf { decoded ->
             decoded.length in 1..80 && decoded.none { it == '\n' || it == '\r' }
         }
+        // Не показываем пользователю служебный base64-префикс, если заголовок повреждён.
+        if (base64Decoded == null && urlDecoded.startsWith("base64:", ignoreCase = true)) return null
         return (base64Decoded ?: urlDecoded).trim().take(80)
     }
 
