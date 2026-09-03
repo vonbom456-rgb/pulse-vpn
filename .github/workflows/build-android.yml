@@ -1,81 +1,37 @@
-name: Build Android APK
+name: Build native Pulse VPN
 
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, "native/**"]
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
-  build:
+  android:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-
+    timeout-minutes: 45
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Java
-        uses: actions/setup-java@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
-
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
         with:
-          channel: stable
-          cache: true
-
-      - name: Generate Android runner
-        run: flutter create . --platforms=android --org=app.pulse.vpn
-
-      - name: Match sing-box Android requirements
-        shell: bash
-        run: |
-          if [ -f android/app/build.gradle.kts ]; then
-            sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 26/' android/app/build.gradle.kts
-            sed -i '/sourceCompatibility = JavaVersion.VERSION_17/a\        isCoreLibraryDesugaringEnabled = true' android/app/build.gradle.kts
-            perl -0pi -e 's|\z|\ndependencies {\n    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")\n}\n|' android/app/build.gradle.kts
-          fi
-          if [ -f android/app/build.gradle ]; then
-            sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 26/' android/app/build.gradle
-            sed -i '/sourceCompatibility JavaVersion.VERSION_17/a\        coreLibraryDesugaringEnabled true' android/app/build.gradle
-            perl -0pi -e "s|\z|\ndependencies {\n    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.5'\n}\n|" android/app/build.gradle
-          fi
-          if [ -f android/build.gradle.kts ]; then
-            sed -i '/        mavenCentral()/a\        maven { url = uri("https://jitpack.io") }' android/build.gradle.kts
-          fi
-          if [ -f android/build.gradle ]; then
-            sed -i "/        mavenCentral()/a\\        maven { url 'https://jitpack.io' }" android/build.gradle
-          fi
-
-      - name: Install dependencies
-        run: flutter pub get
-
-      - name: Fix flutter_sing_box Activity bridge
-        shell: bash
-        run: |
-          python3 tool/patch_sing_box_android.py
-          cp tool/android/MainActivity.kt \
-            android/app/src/main/kotlin/app/pulse/vpn/pulse_vpn/MainActivity.kt
-
-      - name: Generate Pulse launcher icon
-        run: dart run flutter_launcher_icons
-
-      - name: Analyze
-        run: flutter analyze
-
-      - name: Test
-        run: flutter test
-
-      - name: Build release APKs by CPU architecture
-        run: flutter build apk --release --split-per-abi
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
+          gradle-version: "8.13"
+      - name: Unit tests
+        run: gradle :app:testDebugUnitTest --stacktrace
+      - name: Android lint
+        run: gradle :app:lintDebug --stacktrace
+      - name: Release APKs
+        run: gradle :app:assembleRelease --stacktrace
+      - uses: actions/upload-artifact@v4
         with:
-          name: pulse-vpn-release
-          path: build/app/outputs/flutter-apk/*-release.apk
+          name: pulse-vpn-native-release
+          path: app/build/outputs/apk/release/*.apk
           if-no-files-found: error
+          compression-level: 0

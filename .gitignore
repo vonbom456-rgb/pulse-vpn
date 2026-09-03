@@ -1,10 +1,6 @@
-backend/.env
-backend/node_modules/
-backend/dist/
+.gradle/
+.idea/
+local.properties
+**/build/
 *.jks
 *.keystore
-key.properties
-.dart_tool/
-build/
-.idea/
-*.iml
