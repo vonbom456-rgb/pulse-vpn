@@ -94,7 +94,8 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun import(input: String) = viewModelScope.launch {
-        _state.update { it.copy(importing = true, message = null) }
+        // Сразу показываем состояние работы, чтобы сетевой импорт не выглядел зависшим.
+        _state.update { it.copy(importing = true, message = "Импортируем подписку…") }
         when (val result = repository.importProfile(input)) {
             is ImportResult.Success -> {
                 val count = repository.servers(result.profile).size

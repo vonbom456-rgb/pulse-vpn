@@ -83,6 +83,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.foundation.Image
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -106,6 +107,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -114,6 +116,7 @@ import androidx.compose.ui.unit.sp
 import app.pulse.vpn.PulseUiState
 import app.pulse.vpn.PulseViewModel
 import app.pulse.vpn.Screen
+import app.pulse.vpn.R
 import app.pulse.vpn.core.SettingsManager
 import app.pulse.vpn.data.ProfileRepository
 import app.pulse.vpn.data.VpnProfile
@@ -122,6 +125,7 @@ import io.nekohasekai.sfa.constant.Status
 import kotlinx.coroutines.delay
 import java.text.DateFormat
 import java.util.Date
+import java.util.concurrent.TimeUnit
 import kotlin.math.max
 import kotlin.math.exp
 
@@ -261,7 +265,11 @@ private fun HomeScreen(
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            PulseMark(38.dp)
+            Image(
+                painter = painterResource(R.drawable.pulse_app_icon),
+                contentDescription = "Pulse VPN",
+                modifier = Modifier.size(44.dp).clip(RoundedCornerShape(14.dp)),
+            )
             Spacer(Modifier.width(11.dp))
             Text(
                 "PULSE",
@@ -320,6 +328,10 @@ private fun HomeScreen(
                 else -> connect
             },
         )
+        state.selectedProfile?.let { profile ->
+            Spacer(Modifier.height(12.dp))
+            SubscriptionHeaderCard(profile, profiles)
+        }
         AnimatedVisibility(visible = state.vpnStatus == Status.Started) {
             Row(
                 Modifier.fillMaxWidth().height(56.dp),
@@ -365,6 +377,80 @@ private fun HomeScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun SubscriptionHeaderCard(profile: VpnProfile, openProfiles: () -> Unit) {
+    val expires = profile.expireAt?.takeIf { it > 0 }
+    val daysLeft = expires?.let {
+        TimeUnit.MILLISECONDS.toDays((it * 1000L - System.currentTimeMillis()).coerceAtLeast(0L)).toInt()
+    }
+    val used = (profile.uploadBytes ?: 0L) + (profile.downloadBytes ?: 0L)
+    Column(
+        Modifier.fillMaxWidth()
+            .clip(RoundedCornerShape(26.dp))
+            .background(
+                Brush.linearGradient(
+                    listOf(Color(0xFF29245E).copy(.94f), Color(0xFF123F54).copy(.94f)),
+                ),
+            )
+            .border(1.dp, PulseColors.Violet.copy(.32f), RoundedCornerShape(26.dp))
+            .clickable(onClick = openProfiles)
+            .padding(18.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            PulseMark(42.dp)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(profile.name, fontWeight = FontWeight.Bold, fontSize = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    if (profile.sourceUrl != null) "Удалённая подписка" else "Локальная конфигурация",
+                    color = Color.White.copy(.62f),
+                    fontSize = 12.sp,
+                )
+                Text(
+                    "Обновлено ${DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(profile.updatedAt))}",
+                    color = Color.White.copy(.46f),
+                    fontSize = 10.sp,
+                )
+            }
+            Icon(Icons.Outlined.ChevronRight, null, tint = Color.White.copy(.58f))
+        }
+        Spacer(Modifier.height(18.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            SubscriptionMeta(
+                title = "СРОК",
+                value = when {
+                    daysLeft == null -> "Без даты"
+                    daysLeft == 0 -> "Истёк"
+                    else -> "$daysLeft дн."
+                },
+                modifier = Modifier.weight(1f),
+            )
+            SubscriptionMeta(
+                title = "ТРАФИК",
+                value = profile.totalBytes?.let { "${formatBytes(used)} / ${formatBytes(it)}" } ?: "Без лимита",
+                modifier = Modifier.weight(1f),
+            )
+        }
+        expires?.let {
+            Spacer(Modifier.height(12.dp))
+            Text(
+                "Действует до ${DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(it * 1000L))}",
+                color = Color.White.copy(.66f),
+                fontSize = 12.sp,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SubscriptionMeta(title: String, value: String, modifier: Modifier = Modifier) {
+    Column(modifier.clip(RoundedCornerShape(16.dp)).background(Color.Black.copy(.14f)).padding(horizontal = 12.dp, vertical = 10.dp)) {
+        Text(title, color = Color.White.copy(.48f), fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+        Spacer(Modifier.height(4.dp))
+        Text(value, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
