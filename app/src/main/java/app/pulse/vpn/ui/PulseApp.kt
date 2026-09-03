@@ -381,7 +381,7 @@ private fun HomeScreen(
                     Icon(Icons.Outlined.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurface.copy(alpha = .32f))
                 }
             }
-        } else {
+        } else if (subscriptionExpanded) {
             Text("СЕРВЕРЫ", modifier = Modifier.fillMaxWidth().padding(start = 4.dp, bottom = 8.dp), color = MaterialTheme.colorScheme.onSurface.copy(.38f), fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
             state.servers.forEach { server ->
                 HomeServerRow(server, selectServer)
@@ -446,11 +446,6 @@ private fun SubscriptionHeaderCard(
             Column(Modifier.weight(1f)) {
                 Text(profileName, fontWeight = FontWeight.Bold, fontSize = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(
-                    if (profile.sourceUrl != null) "Удалённая подписка" else "Локальная конфигурация",
-                    color = Color.White.copy(.62f),
-                    fontSize = 12.sp,
-                )
-                Text(
                     "Обновлено ${DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(profile.updatedAt))}",
                     color = Color.White.copy(.46f),
                     fontSize = 10.sp,
@@ -501,16 +496,16 @@ private fun SubscriptionHeaderCard(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(
                         onClick = { if (infoLink != null) openExternal(context, infoLink) else openProfiles() },
-                        modifier = Modifier.size(36.dp).clip(CircleShape).background(Color.White.copy(.10f)),
+                        modifier = Modifier.size(42.dp),
                     ) {
-                        Icon(Icons.Outlined.Info, "Информация о подписке", tint = Color.White.copy(.82f), modifier = Modifier.size(18.dp))
+                        Icon(Icons.Outlined.Info, "Информация о подписке", tint = Color.White.copy(.82f), modifier = Modifier.size(25.dp))
                     }
                     Spacer(Modifier.width(8.dp))
                     IconButton(
                         onClick = { if (telegramLink != null) openExternal(context, telegramLink) else if (sourceLink != null) openExternal(context, sourceLink) else openProfiles() },
-                        modifier = Modifier.size(36.dp).clip(CircleShape).background(PulseColors.Cyan.copy(.15f)),
+                        modifier = Modifier.size(42.dp),
                     ) {
-                        Icon(Icons.Outlined.Send, "Telegram", tint = PulseColors.Cyan, modifier = Modifier.size(18.dp))
+                        Icon(Icons.Outlined.Send, "Telegram", tint = PulseColors.Cyan, modifier = Modifier.size(25.dp))
                     }
                 }
                 Spacer(Modifier.height(18.dp))
