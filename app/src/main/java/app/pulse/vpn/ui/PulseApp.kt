@@ -197,12 +197,14 @@ fun PulseApp(
 
 @Composable
 private fun PulseBackdrop(modifier: Modifier = Modifier, animated: Boolean = true) {
+    val primary = MaterialTheme.colorScheme.primary
+    val secondary = MaterialTheme.colorScheme.secondary
     if (!animated) {
         Canvas(modifier) {
             val width = size.width
             val height = size.height
-            drawCircle(Brush.radialGradient(listOf(MaterialTheme.colorScheme.primary.copy(.12f), Color.Transparent), radius = width * .62f), width * .62f, Offset(width * .16f, height * .2f))
-            drawCircle(Brush.radialGradient(listOf(MaterialTheme.colorScheme.secondary.copy(.08f), Color.Transparent), radius = width * .52f), width * .52f, Offset(width * .84f, height * .54f))
+            drawCircle(Brush.radialGradient(listOf(primary.copy(.12f), Color.Transparent), radius = width * .62f), width * .62f, Offset(width * .16f, height * .2f))
+            drawCircle(Brush.radialGradient(listOf(secondary.copy(.08f), Color.Transparent), radius = width * .52f), width * .52f, Offset(width * .84f, height * .54f))
         }
         return
     }
@@ -218,8 +220,8 @@ private fun PulseBackdrop(modifier: Modifier = Modifier, animated: Boolean = tru
         val height = size.height
         val violet = Offset(width * (.12f + drift * .16f), height * (.18f + drift * .05f))
         val cyan = Offset(width * (.92f - drift * .18f), height * (.58f - drift * .08f))
-        drawCircle(Brush.radialGradient(listOf(MaterialTheme.colorScheme.primary.copy(.16f), Color.Transparent), radius = width * .62f), width * .62f, violet)
-        drawCircle(Brush.radialGradient(listOf(MaterialTheme.colorScheme.secondary.copy(.10f), Color.Transparent), radius = width * .52f), width * .52f, cyan)
+        drawCircle(Brush.radialGradient(listOf(primary.copy(.16f), Color.Transparent), radius = width * .62f), width * .62f, violet)
+        drawCircle(Brush.radialGradient(listOf(secondary.copy(.10f), Color.Transparent), radius = width * .52f), width * .52f, cyan)
     }
 }
 
@@ -767,6 +769,7 @@ private fun PulseConnectButton(status: Status, configured: Boolean, animated: Bo
     val pressed by interaction.collectIsPressedAsState()
     val pressScale by animateFloatAsState(if (pressed) .96f else 1f, tween(140), label = "press")
     val haptic = LocalHapticFeedback.current
+    val ringColor = if (active) PulseColors.Success else MaterialTheme.colorScheme.primary
 
     Box(Modifier.fillMaxWidth().height(272.dp), contentAlignment = Alignment.Center) {
         Canvas(Modifier.size(272.dp)) {
@@ -774,7 +777,7 @@ private fun PulseConnectButton(status: Status, configured: Boolean, animated: Bo
             repeat(3) { index ->
                 val base = size.minDimension * (.31f + index * .085f)
                 drawCircle(
-                    color = (if (active) PulseColors.Success else MaterialTheme.colorScheme.primary)
+                    color = ringColor
                         .copy(alpha = if (active || moving) .18f - index * .035f else .055f),
                     radius = base * (1f + beat * (.018f + index * .008f)),
                     center = center,
@@ -1123,13 +1126,15 @@ private fun StatsScreen(state: PulseUiState) {
 
 @Composable
 private fun SpeedGraph(samples: List<Long>) {
+    val primary = MaterialTheme.colorScheme.primary
+    val secondary = MaterialTheme.colorScheme.secondary
     Canvas(Modifier.fillMaxWidth().height(170.dp)) {
         if (samples.size < 2) return@Canvas
         val peak = max(1L, samples.max()).toFloat()
         val step = size.width / (samples.size - 1)
         val points = samples.mapIndexed { index, value -> Offset(index * step, size.height - (value / peak) * size.height * .86f) }
         for (i in 0 until points.lastIndex) drawLine(
-            brush = Brush.horizontalGradient(listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.secondary)),
+            brush = Brush.horizontalGradient(listOf(primary, secondary)),
             start = points[i], end = points[i + 1], strokeWidth = 3.dp.toPx(), cap = StrokeCap.Round,
         )
     }

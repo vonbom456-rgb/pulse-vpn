@@ -198,13 +198,13 @@ class ProfileRepository(
     private fun writeEffectiveConfig(profile: VpnProfile) {
         val base = readBaseConfig(profile) ?: return
         val sourceItems = base["outbounds"]?.jsonArray.orEmpty().filterIsInstance<JsonObject>()
-        val routeTags = sourceItems.filter(::isRouteServer).mapNotNull { it.value("tag").takeIf(String::isNotBlank) }
+        val routeTags = sourceItems.filter { it.isRouteServer() }.mapNotNull { it.value("tag").takeIf(String::isNotBlank) }
         val validTargets = sourceItems
-            .filterNot(::isProviderError)
+            .filterNot { it.isProviderError() }
             .filter { it.value("type") != "dns" && !it.isProviderInfo() }
             .mapNotNull { it.value("tag").takeIf(String::isNotBlank) }
             .toSet()
-        val outbounds = sourceItems.filterNot(::isProviderError).map { item ->
+        val outbounds = sourceItems.filterNot { it.isProviderError() }.map { item ->
             if (item.value("type") !in setOf("selector", "urltest")) return@map item
             val refs = (item["outbounds"] as? JsonArray ?: JsonArray(emptyList()))
                 .mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
