@@ -201,8 +201,8 @@ private fun PulseBackdrop(modifier: Modifier = Modifier, animated: Boolean = tru
         Canvas(modifier) {
             val width = size.width
             val height = size.height
-            drawCircle(Brush.radialGradient(listOf(PulseColors.Violet.copy(.12f), Color.Transparent), radius = width * .62f), width * .62f, Offset(width * .16f, height * .2f))
-            drawCircle(Brush.radialGradient(listOf(PulseColors.Cyan.copy(.08f), Color.Transparent), radius = width * .52f), width * .52f, Offset(width * .84f, height * .54f))
+            drawCircle(Brush.radialGradient(listOf(MaterialTheme.colorScheme.primary.copy(.12f), Color.Transparent), radius = width * .62f), width * .62f, Offset(width * .16f, height * .2f))
+            drawCircle(Brush.radialGradient(listOf(MaterialTheme.colorScheme.secondary.copy(.08f), Color.Transparent), radius = width * .52f), width * .52f, Offset(width * .84f, height * .54f))
         }
         return
     }
@@ -218,8 +218,8 @@ private fun PulseBackdrop(modifier: Modifier = Modifier, animated: Boolean = tru
         val height = size.height
         val violet = Offset(width * (.12f + drift * .16f), height * (.18f + drift * .05f))
         val cyan = Offset(width * (.92f - drift * .18f), height * (.58f - drift * .08f))
-        drawCircle(Brush.radialGradient(listOf(PulseColors.Violet.copy(.16f), Color.Transparent), radius = width * .62f), width * .62f, violet)
-        drawCircle(Brush.radialGradient(listOf(PulseColors.Cyan.copy(.10f), Color.Transparent), radius = width * .52f), width * .52f, cyan)
+        drawCircle(Brush.radialGradient(listOf(MaterialTheme.colorScheme.primary.copy(.16f), Color.Transparent), radius = width * .62f), width * .62f, violet)
+        drawCircle(Brush.radialGradient(listOf(MaterialTheme.colorScheme.secondary.copy(.10f), Color.Transparent), radius = width * .52f), width * .52f, cyan)
     }
 }
 
@@ -247,7 +247,7 @@ private fun PulseNavigation(current: Screen, navigate: (Screen) -> Unit) {
                 Box(
                     Modifier.size(48.dp).clip(CircleShape)
                         .background(
-                            if (selected) PulseColors.Violet.copy(alpha = .18f)
+                            if (selected) MaterialTheme.colorScheme.primary.copy(alpha = .18f)
                             else Color.Transparent,
                         )
                         .clickable { navigate(screen) },
@@ -256,7 +256,7 @@ private fun PulseNavigation(current: Screen, navigate: (Screen) -> Unit) {
                     Icon(
                         icon,
                         label,
-                        tint = if (selected) PulseColors.Cyan
+                        tint = if (selected) MaterialTheme.colorScheme.secondary
                         else MaterialTheme.colorScheme.onSurface.copy(alpha = .42f),
                     )
                 }
@@ -298,7 +298,7 @@ private fun HomeScreen(
             Text(
                 "PULSE",
                 style = MaterialTheme.typography.headlineMedium.copy(
-                    brush = Brush.linearGradient(listOf(PulseColors.Violet, PulseColors.Cyan)),
+                    brush = Brush.linearGradient(listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.secondary)),
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 2.sp,
                 ),
@@ -459,7 +459,7 @@ private fun SubscriptionHeaderCard(
                     listOf(Color(0xFF29245E).copy(.94f), Color(0xFF123F54).copy(.94f)),
                 ),
             )
-            .border(1.dp, PulseColors.Violet.copy(.32f), RoundedCornerShape(26.dp))
+            .border(1.dp, MaterialTheme.colorScheme.primary.copy(.32f), RoundedCornerShape(26.dp))
             .clickable(onClick = openProfiles)
             .padding(18.dp),
     ) {
@@ -482,16 +482,16 @@ private fun SubscriptionHeaderCard(
             Row(
                 Modifier.height(36.dp)
                     .clip(RoundedCornerShape(12.dp))
-                    .background(PulseColors.Cyan.copy(alpha = if (canPing) .14f else .07f))
-                    .border(1.dp, PulseColors.Cyan.copy(alpha = if (canPing) .28f else .12f), RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.secondary.copy(alpha = if (canPing) .14f else .07f))
+                    .border(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = if (canPing) .28f else .12f), RoundedCornerShape(12.dp))
                     .clickable(enabled = canPing, onClick = testPings)
                     .padding(horizontal = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (testingPings) {
-                    CircularProgressIndicator(Modifier.size(16.dp), color = PulseColors.Cyan, strokeWidth = 2.dp)
+                    CircularProgressIndicator(Modifier.size(16.dp), color = MaterialTheme.colorScheme.secondary, strokeWidth = 2.dp)
                 } else {
-                    Icon(Icons.Outlined.Speed, "Проверить пинг серверов", tint = PulseColors.Cyan.copy(alpha = if (canPing) 1f else .5f), modifier = Modifier.size(17.dp))
+                    Icon(Icons.Outlined.Speed, "Проверить пинг серверов", tint = MaterialTheme.colorScheme.secondary.copy(alpha = if (canPing) 1f else .5f), modifier = Modifier.size(17.dp))
                 }
                 Spacer(Modifier.width(5.dp))
                 Text(
@@ -558,7 +558,7 @@ private fun SubscriptionHeaderCard(
                         icon = Icons.Outlined.Send,
                         label = "Telegram",
                         enabled = telegramLink != null,
-                        tint = PulseColors.Cyan,
+                        tint = MaterialTheme.colorScheme.secondary,
                         onClick = { telegramLink?.let { openExternal(context, it) } },
                     )
                 }
@@ -696,7 +696,7 @@ private fun SubscriptionMeta(title: String, value: String, modifier: Modifier = 
 private fun HomeServerRow(server: VpnServer, select: (VpnServer) -> Unit) {
     PremiumCard(onClick = { select(server) }) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(42.dp).clip(RoundedCornerShape(14.dp)).background(Brush.linearGradient(listOf(PulseColors.Violet.copy(.34f), PulseColors.Cyan.copy(.18f)))), contentAlignment = Alignment.Center) {
+            Box(Modifier.size(42.dp).clip(RoundedCornerShape(14.dp)).background(Brush.linearGradient(listOf(MaterialTheme.colorScheme.primary.copy(.34f), MaterialTheme.colorScheme.secondary.copy(.18f)))), contentAlignment = Alignment.Center) {
                 Text(countryFlag(server.tag), fontSize = 21.sp)
             }
             Spacer(Modifier.width(12.dp))
@@ -774,7 +774,7 @@ private fun PulseConnectButton(status: Status, configured: Boolean, animated: Bo
             repeat(3) { index ->
                 val base = size.minDimension * (.31f + index * .085f)
                 drawCircle(
-                    color = (if (active) PulseColors.Success else PulseColors.Violet)
+                    color = (if (active) PulseColors.Success else MaterialTheme.colorScheme.primary)
                         .copy(alpha = if (active || moving) .18f - index * .035f else .055f),
                     radius = base * (1f + beat * (.018f + index * .008f)),
                     center = center,
@@ -792,7 +792,7 @@ private fun PulseConnectButton(status: Status, configured: Boolean, animated: Bo
             }.background(
                 Brush.linearGradient(
                     if (active) listOf(Color(0xFF19C8A1), PulseColors.Success)
-                    else listOf(PulseColors.Violet, PulseColors.Cyan),
+                    else listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.secondary),
                 ),
             ).border(1.dp, Color.White.copy(alpha = .24f), CircleShape)
                 .clickable(interactionSource = interaction, indication = null) {
@@ -843,9 +843,16 @@ private fun RoutesScreen(
     add: () -> Unit,
 ) {
     var query by remember { mutableStateOf("") }
+    var filter by rememberSaveable { mutableStateOf("all") }
     var details by remember { mutableStateOf<VpnServer?>(null) }
-    val filtered = remember(state.servers, query) {
-        state.servers.filterNot(VpnServer::isInfoMetadata).filter { it.tag.contains(query, ignoreCase = true) }
+    val filtered = remember(state.servers, query, filter) {
+        state.servers.filterNot(VpnServer::isInfoMetadata).filter { server ->
+            server.tag.contains(query, ignoreCase = true) && when (filter) {
+                "available" -> server.delayMs != null
+                "slow" -> server.delayMs == null || server.delayMs >= 250
+                else -> true
+            }
+        }
     }
     val allRoutes = remember(state.servers) { state.servers.filterNot(VpnServer::isInfoMetadata) }
     Column(
@@ -876,6 +883,12 @@ private fun RoutesScreen(
             leadingIcon = { Icon(Icons.Outlined.Search, null) },
             placeholder = { Text("Название сервера") },
         )
+        Spacer(Modifier.height(9.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            RouteFilterChip("Все", filter == "all") { filter = "all" }
+            RouteFilterChip("Доступные", filter == "available") { filter = "available" }
+            RouteFilterChip("Медленные / нет ответа", filter == "slow") { filter = "slow" }
+        }
         if (allRoutes.isNotEmpty()) {
             Spacer(Modifier.height(12.dp))
             PingOverview(
@@ -890,7 +903,7 @@ private fun RoutesScreen(
         Spacer(Modifier.height(14.dp))
         PullToRefreshBox(
             isRefreshing = state.importing,
-            onRefresh = refresh,
+            onRefresh = { if (!state.importing) refresh() },
             state = rememberPullToRefreshState(),
             modifier = Modifier.fillMaxSize(),
         ) {
@@ -920,6 +933,19 @@ private fun RoutesScreen(
 }
 
 @Composable
+private fun RouteFilterChip(label: String, selected: Boolean, onClick: () -> Unit) {
+    Box(
+        Modifier.clip(CircleShape)
+            .background(if (selected) MaterialTheme.colorScheme.primary.copy(.22f) else MaterialTheme.colorScheme.surfaceVariant.copy(.62f))
+            .border(1.dp, if (selected) MaterialTheme.colorScheme.primary.copy(.42f) else MaterialTheme.colorScheme.onSurface.copy(.07f), CircleShape)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+    ) {
+        Text(label, color = if (selected) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurface.copy(.55f), fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+@Composable
 private fun PingOverview(
     total: Int,
     checked: Int,
@@ -934,14 +960,14 @@ private fun PingOverview(
         Modifier.fillMaxWidth()
             .clip(RoundedCornerShape(18.dp))
             .background(MaterialTheme.colorScheme.surface.copy(alpha = .78f))
-            .border(1.dp, PulseColors.Cyan.copy(alpha = .14f), RoundedCornerShape(18.dp))
+            .border(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = .14f), RoundedCornerShape(18.dp))
             .clickable(enabled = !running, onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.size(36.dp).clip(CircleShape).background(PulseColors.Cyan.copy(.12f)), contentAlignment = Alignment.Center) {
-            if (running) CircularProgressIndicator(Modifier.size(18.dp), color = PulseColors.Cyan, strokeWidth = 2.dp)
-            else Icon(Icons.Outlined.Speed, "Проверить пинг", tint = PulseColors.Cyan, modifier = Modifier.size(19.dp))
+        Box(Modifier.size(36.dp).clip(CircleShape).background(MaterialTheme.colorScheme.secondary.copy(.12f)), contentAlignment = Alignment.Center) {
+            if (running) CircularProgressIndicator(Modifier.size(18.dp), color = MaterialTheme.colorScheme.secondary, strokeWidth = 2.dp)
+            else Icon(Icons.Outlined.Speed, "Проверить пинг", tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(19.dp))
         }
         Spacer(Modifier.width(11.dp))
         Column(Modifier.weight(1f)) {
@@ -955,7 +981,7 @@ private fun PingOverview(
                 androidx.compose.material3.LinearProgressIndicator(
                     progress = { fraction },
                     modifier = Modifier.fillMaxWidth().height(3.dp).clip(CircleShape),
-                    color = PulseColors.Cyan,
+                    color = MaterialTheme.colorScheme.secondary,
                     trackColor = MaterialTheme.colorScheme.onSurface.copy(.10f),
                 )
             }
@@ -970,11 +996,11 @@ private fun ServerRow(server: VpnServer, onClick: () -> Unit, onInfo: () -> Unit
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(
                 Modifier.size(46.dp).clip(RoundedCornerShape(15.dp)).background(
-                    Brush.linearGradient(listOf(PulseColors.Violet.copy(.28f), PulseColors.Cyan.copy(.16f))),
+                    Brush.linearGradient(listOf(MaterialTheme.colorScheme.primary.copy(.28f), MaterialTheme.colorScheme.secondary.copy(.16f))),
                 ),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(Icons.Outlined.Language, null, tint = PulseColors.Cyan)
+                Icon(Icons.Outlined.Language, null, tint = MaterialTheme.colorScheme.secondary)
             }
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
@@ -1089,8 +1115,8 @@ private fun StatsScreen(state: PulseUiState) {
         }
         Spacer(Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            MetricCard("↓", formatBytes(state.traffic.downloadTotal), "ПОЛУЧЕНО", Modifier.weight(1f), PulseColors.Cyan)
-            MetricCard("↑", formatBytes(state.traffic.uploadTotal), "ОТПРАВЛЕНО", Modifier.weight(1f), PulseColors.Violet)
+            MetricCard("↓", formatBytes(state.traffic.downloadTotal), "ПОЛУЧЕНО", Modifier.weight(1f), MaterialTheme.colorScheme.secondary)
+            MetricCard("↑", formatBytes(state.traffic.uploadTotal), "ОТПРАВЛЕНО", Modifier.weight(1f), MaterialTheme.colorScheme.primary)
         }
     }
 }
@@ -1103,7 +1129,7 @@ private fun SpeedGraph(samples: List<Long>) {
         val step = size.width / (samples.size - 1)
         val points = samples.mapIndexed { index, value -> Offset(index * step, size.height - (value / peak) * size.height * .86f) }
         for (i in 0 until points.lastIndex) drawLine(
-            brush = Brush.horizontalGradient(listOf(PulseColors.Violet, PulseColors.Cyan)),
+            brush = Brush.horizontalGradient(listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.secondary)),
             start = points[i], end = points[i + 1], strokeWidth = 3.dp.toPx(), cap = StrokeCap.Round,
         )
     }
@@ -1113,6 +1139,8 @@ private fun SpeedGraph(samples: List<Long>) {
 private fun SettingsScreen(state: PulseUiState, viewModel: PulseViewModel, openVpnSettings: () -> Unit) {
     ScreenColumn {
         ScreenHeader("Настройки")
+        SettingsSnapshotCard(state, { viewModel.navigate(Screen.PROFILES) }, { viewModel.navigate(Screen.ROUTES) })
+        SettingsHintCard()
         SectionLabel("ПОДКЛЮЧЕНИЕ")
         SettingsCard {
             SettingSwitch(Icons.Outlined.Bolt, "Автоподключение", "Запуск VPN после перезагрузки", state.autoConnect, viewModel::setAutoConnect)
@@ -1164,9 +1192,70 @@ private fun SettingsScreen(state: PulseUiState, viewModel: PulseViewModel, openV
         }
         SectionLabel("О ПРИЛОЖЕНИИ")
         SettingsCard {
-            SettingAction(Icons.Outlined.Info, "Pulse VPN 0.5", "Kotlin · Compose · sing-box", {})
+            SettingAction(Icons.Outlined.Info, "Pulse VPN 0.5.2", "Kotlin · Compose · sing-box · arm64 / armeabi / x86_64", {})
         }
     }
+}
+
+@Composable
+private fun SettingsSnapshotCard(state: PulseUiState, openProfiles: () -> Unit, openRoutes: () -> Unit) {
+    val routes = state.servers.filterNot(VpnServer::isInfoMetadata)
+    val available = routes.count { it.delayMs != null }
+    val selected = routes.firstOrNull(VpnServer::selected)
+    PremiumCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconTile(Icons.Outlined.Tune)
+            Spacer(Modifier.width(13.dp))
+            Column(Modifier.weight(1f)) {
+                Text("СОСТОЯНИЕ PULSE", color = MaterialTheme.colorScheme.onSurface.copy(.46f), fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                Spacer(Modifier.height(3.dp))
+                Text(state.selectedProfile?.let(::displayProfileName) ?: "Профиль не добавлен", fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            StatusPill(state.vpnStatus)
+        }
+        Spacer(Modifier.height(15.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            SettingsMetric("МАРШРУТ", selected?.tag ?: "Не выбран", Modifier.weight(1.2f))
+            SettingsMetric("СЕРВЕРЫ", if (routes.isEmpty()) "—" else "$available/${routes.size}", Modifier.weight(.8f))
+            SettingsMetric("РЕЖИМ", routingLabel(state.routingMode), Modifier.weight(1f))
+        }
+        Spacer(Modifier.height(13.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = openProfiles, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp), colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary.copy(.16f), contentColor = MaterialTheme.colorScheme.secondary)) {
+                Icon(Icons.Outlined.Devices, null, Modifier.size(16.dp)); Spacer(Modifier.width(6.dp)); Text("Профили", fontSize = 12.sp)
+            }
+            Button(onClick = openRoutes, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp), colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary.copy(.14f), contentColor = MaterialTheme.colorScheme.secondary)) {
+                Icon(Icons.Outlined.Route, null, Modifier.size(16.dp)); Spacer(Modifier.width(6.dp)); Text("Маршруты", fontSize = 12.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsMetric(title: String, value: String, modifier: Modifier) {
+    Column(modifier.clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.surfaceVariant.copy(.55f)).padding(horizontal = 10.dp, vertical = 9.dp)) {
+        Text(title, color = MaterialTheme.colorScheme.onSurface.copy(.42f), fontSize = 8.sp, fontWeight = FontWeight.Bold, letterSpacing = .8.sp, maxLines = 1)
+        Spacer(Modifier.height(4.dp))
+        Text(value, color = MaterialTheme.colorScheme.onSurface, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+@Composable
+private fun SettingsHintCard() {
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(MaterialTheme.colorScheme.secondary.copy(.08f)).border(1.dp, MaterialTheme.colorScheme.secondary.copy(.16f), RoundedCornerShape(18.dp)).padding(horizontal = 13.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.Outlined.Info, null, tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(19.dp))
+        Spacer(Modifier.width(10.dp))
+        Text("Изменения маршрутизации и DNS применятся при следующем подключении. Профиль и история пингов сохраняются автоматически.", color = MaterialTheme.colorScheme.onSurface.copy(.65f), fontSize = 11.sp, lineHeight = 16.sp)
+    }
+}
+
+private fun routingLabel(value: String): String = when (value) {
+    "global" -> "Весь VPN"
+    "direct" -> "Напрямую"
+    else -> "Правила"
 }
 
 @Composable
@@ -1186,10 +1275,10 @@ private fun AppsScreen(state: PulseUiState, back: () -> Unit, setMode: (Int) -> 
                 val active = state.perAppMode == mode
                 Box(
                     Modifier.weight(1f).clip(CircleShape)
-                        .background(if (active) PulseColors.Violet.copy(.25f) else MaterialTheme.colorScheme.surface)
+                        .background(if (active) MaterialTheme.colorScheme.primary.copy(.25f) else MaterialTheme.colorScheme.surface)
                         .clickable { setMode(mode) }.padding(vertical = 10.dp),
                     contentAlignment = Alignment.Center,
-                ) { Text(label, color = if (active) PulseColors.Cyan else MaterialTheme.colorScheme.onSurface.copy(.5f), fontSize = 12.sp) }
+                ) { Text(label, color = if (active) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurface.copy(.5f), fontSize = 12.sp) }
             }
         }
         LazyColumn(contentPadding = PaddingValues(14.dp, 8.dp, 14.dp, 32.dp)) {
@@ -1258,7 +1347,7 @@ private fun ImportDialog(loading: Boolean, onDismiss: () -> Unit, onImport: (Str
             }
         },
         confirmButton = {
-            Button(onClick = { onImport(value) }, enabled = value.isNotBlank() && !loading, colors = ButtonDefaults.buttonColors(containerColor = PulseColors.Violet)) {
+            Button(onClick = { onImport(value) }, enabled = value.isNotBlank() && !loading, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)) {
                 if (loading) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = Color.White) else Text("Импортировать")
             }
         },
@@ -1302,14 +1391,14 @@ private fun EmptyCard(icon: androidx.compose.ui.graphics.vector.ImageVector, tit
     PremiumCard {
         IconTile(icon); Spacer(Modifier.height(18.dp)); Text(title, style = MaterialTheme.typography.titleLarge)
         Spacer(Modifier.height(6.dp)); Text(text, color = MaterialTheme.colorScheme.onSurface.copy(.5f), lineHeight = 20.sp)
-        Spacer(Modifier.height(18.dp)); Button(onClick = onClick, shape = CircleShape, colors = ButtonDefaults.buttonColors(containerColor = PulseColors.Violet)) { Text(action) }
+        Spacer(Modifier.height(18.dp)); Button(onClick = onClick, shape = CircleShape, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)) { Text(action) }
     }
 }
 
 @Composable
 private fun IconTile(icon: androidx.compose.ui.graphics.vector.ImageVector) {
-    Box(Modifier.size(44.dp).clip(RoundedCornerShape(15.dp)).background(Brush.linearGradient(listOf(PulseColors.Violet.copy(.32f), PulseColors.Cyan.copy(.2f)))), contentAlignment = Alignment.Center) {
-        Icon(icon, null, tint = PulseColors.Cyan)
+    Box(Modifier.size(44.dp).clip(RoundedCornerShape(15.dp)).background(Brush.linearGradient(listOf(MaterialTheme.colorScheme.primary.copy(.32f), MaterialTheme.colorScheme.secondary.copy(.2f)))), contentAlignment = Alignment.Center) {
+        Icon(icon, null, tint = MaterialTheme.colorScheme.secondary)
     }
 }
 
@@ -1341,7 +1430,7 @@ private fun ScreenHeader(title: String, back: (() -> Unit)? = null, trailing: @C
 
 @Composable
 private fun PulseMark(size: androidx.compose.ui.unit.Dp) {
-    Box(Modifier.size(size).clip(RoundedCornerShape(size / 3)).background(Brush.linearGradient(listOf(PulseColors.Violet, PulseColors.Cyan))), contentAlignment = Alignment.Center) {
+    Box(Modifier.size(size).clip(RoundedCornerShape(size / 3)).background(Brush.linearGradient(listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.secondary))), contentAlignment = Alignment.Center) {
         Canvas(Modifier.size(size * .62f)) {
             val y = this.size.height / 2
             val points = listOf(Offset(0f, y), Offset(this.size.width * .24f, y), Offset(this.size.width * .36f, y * .25f), Offset(this.size.width * .53f, y * 1.65f), Offset(this.size.width * .67f, y), Offset(this.size.width, y))
@@ -1355,11 +1444,11 @@ private fun InlineBanner(message: String, close: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .98f))
-            .border(1.dp, PulseColors.Violet.copy(.28f), RoundedCornerShape(20.dp))
+            .border(1.dp, MaterialTheme.colorScheme.primary.copy(.28f), RoundedCornerShape(20.dp))
             .padding(start = 14.dp, top = 11.dp, bottom = 11.dp, end = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(Icons.Outlined.Info, null, tint = PulseColors.Cyan, modifier = Modifier.size(21.dp))
+        Icon(Icons.Outlined.Info, null, tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(21.dp))
         Spacer(Modifier.width(10.dp))
         Text(message, modifier = Modifier.weight(1f), fontSize = 13.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
         IconButton(onClick = close, modifier = Modifier.size(38.dp)) {
@@ -1374,23 +1463,23 @@ private fun InlineBanner(message: String, close: () -> Unit) {
 
 @Composable
 private fun SettingSwitch(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, subtitle: String, checked: Boolean, change: (Boolean) -> Unit) {
-    Row(verticalAlignment = Alignment.CenterVertically) { Icon(icon, null, tint = PulseColors.Cyan); Spacer(Modifier.width(16.dp)); Column(Modifier.weight(1f)) { Text(title, fontWeight = FontWeight.Medium); Text(subtitle, color = MaterialTheme.colorScheme.onSurface.copy(.42f), fontSize = 12.sp) }; Switch(checked, change) }
+    Row(verticalAlignment = Alignment.CenterVertically) { Icon(icon, null, tint = MaterialTheme.colorScheme.secondary); Spacer(Modifier.width(16.dp)); Column(Modifier.weight(1f)) { Text(title, fontWeight = FontWeight.Medium); Text(subtitle, color = MaterialTheme.colorScheme.onSurface.copy(.42f), fontSize = 12.sp) }; Switch(checked, change) }
 }
 
 @Composable
 private fun SettingAction(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, subtitle: String, click: () -> Unit) {
-    Row(Modifier.fillMaxWidth().clickable(onClick = click).padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) { Icon(icon, null, tint = PulseColors.Cyan); Spacer(Modifier.width(16.dp)); Column(Modifier.weight(1f)) { Text(title, fontWeight = FontWeight.Medium); Text(subtitle, color = MaterialTheme.colorScheme.onSurface.copy(.42f), fontSize = 12.sp) }; Icon(Icons.Outlined.ChevronRight, null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurface.copy(.25f)) }
+    Row(Modifier.fillMaxWidth().clickable(onClick = click).padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) { Icon(icon, null, tint = MaterialTheme.colorScheme.secondary); Spacer(Modifier.width(16.dp)); Column(Modifier.weight(1f)) { Text(title, fontWeight = FontWeight.Medium); Text(subtitle, color = MaterialTheme.colorScheme.onSurface.copy(.42f), fontSize = 12.sp) }; Icon(Icons.Outlined.ChevronRight, null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurface.copy(.25f)) }
 }
 
 @Composable
 private fun ChoiceRow(title: String, selected: String, choices: List<Pair<String, String>>, change: (String) -> Unit) {
     Column { Text(title, fontWeight = FontWeight.Medium); Spacer(Modifier.height(11.dp)); Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) { choices.forEach { (value, label) ->
         val active = selected == value
-        Box(Modifier.weight(1f).clip(CircleShape).background(if (active) PulseColors.Violet.copy(.25f) else MaterialTheme.colorScheme.surfaceVariant).clickable { change(value) }.padding(vertical = 9.dp), contentAlignment = Alignment.Center) { Text(label, color = if (active) PulseColors.Cyan else MaterialTheme.colorScheme.onSurface.copy(.55f), fontSize = 11.sp, fontWeight = FontWeight.SemiBold) }
+        Box(Modifier.weight(1f).clip(CircleShape).background(if (active) MaterialTheme.colorScheme.primary.copy(.25f) else MaterialTheme.colorScheme.surfaceVariant).clickable { change(value) }.padding(vertical = 9.dp), contentAlignment = Alignment.Center) { Text(label, color = if (active) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurface.copy(.55f), fontSize = 11.sp, fontWeight = FontWeight.SemiBold) }
     } } }
 }
 
-@Composable private fun LinearLoading() { Spacer(Modifier.height(16.dp)); androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth(), color = PulseColors.Cyan) }
+@Composable private fun LinearLoading() { Spacer(Modifier.height(16.dp)); androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.secondary) }
 
 private fun perAppLabel(state: PulseUiState) = when (state.perAppMode) {
     SettingsManager.Keys.PER_APP_PROXY_INCLUDE -> "Только выбранные · ${state.selectedApps.size}"

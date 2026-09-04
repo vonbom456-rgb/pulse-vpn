@@ -61,7 +61,7 @@ class SubscriptionImporter(
     private fun fetchCompatible(url: String): Fetched {
         val identity = identityProvider()
         val timestamp = System.currentTimeMillis() / 1000
-        val pulseAgent = "PulseVPN/0.5.0 (Android; sing-box)"
+        val pulseAgent = "PulseVPN/0.5.2 (Android; sing-box)"
         val agents = if (url.contains("/redirect/auto", ignoreCase = true)) {
             listOf("Happ/4.6.0/android/$timestamp", pulseAgent, "sing-box/v1.13.15")
         } else {
@@ -70,8 +70,11 @@ class SubscriptionImporter(
         var lastError: Throwable? = null
         agents.distinct().forEach { userAgent ->
             runCatching {
-                // Normalize once in import(), after metadata has been captured.
-                fetch(url, userAgent, identity)
+                // A redirect endpoint can return HTTP 200 with an incompatible body for
+                // one client profile. Validate the body before accepting that attempt so
+                // the next compatible User-Agent gets a chance.
+                val fetched = fetch(url, userAgent, identity)
+                fetched.copy(normalized = normalize(fetched.body))
             }.onSuccess { return it }.onFailure { lastError = it }
         }
         throw IllegalArgumentException(
@@ -88,7 +91,7 @@ class SubscriptionImporter(
                 if (identity.deviceOs.isNotBlank()) header("X-Device-OS", identity.deviceOs)
                 if (identity.osVersion.isNotBlank()) header("X-Ver-OS", identity.osVersion)
                 if (identity.deviceModel.isNotBlank()) header("X-Device-Model", identity.deviceModel)
-                header("X-App-Version", "0.5.0")
+                header("X-App-Version", "0.5.2")
             }
             .build()
         client.newCall(request).execute().use { response ->
@@ -255,26 +258,31 @@ class SubscriptionImporter(
 
     private fun ensureRuntimeConfig(root: JsonObject): String {
         val map = root.toMutableMap()
-        val outbounds = (root["outbounds"] as? JsonArray)?.toMutableList() ?: mutableListOf()
-        val providerErrors = outbounds.filterIsInstance<JsonObject>().filter(::isProviderError)
-        outbounds.removeAll(providerErrors.toSet())
-        val originalProxyCount = outbounds.count { element ->
-            val item = element as? JsonObject ?: return@count false
-            val type = item.string("type")
-            type !in setOf("direct", "block", "dns", "selector", "urltest") && !item.isProviderInfo()
-        }
+        val rawOutbounds = (root["outbounds"] as? JsonArray)?.filterIsInstance<JsonObject>().orEmpty()
+        val providerErrors = rawOutbounds.filter(::isProviderError)
+        val originalProxyCount = rawOutbounds.count(::isRouteServer)
         if (providerErrors.isNotEmpty() && originalProxyCount == 0) {
             error("Провайдер не выдал серверы. Проверьте лимит устройств или обновите подписку.")
         }
-        val proxyTags = outbounds.mapNotNull { element ->
-            val item = element as? JsonObject ?: return@mapNotNull null
-            val type = item.string("type")
-            item.string("tag").takeIf { it.isNotBlank() && type !in setOf("direct", "block", "dns", "selector", "urltest") && !item.isProviderInfo() }
-        }
+        val proxyTags = rawOutbounds.filter(::isRouteServer).mapNotNull { it.string("tag").takeIf(String::isNotBlank) }
+        val validGroupTargets = rawOutbounds
+            .filterNot(::isProviderError)
+            .filter { it.string("type") != "dns" && !it.isProviderInfo() }
+            .mapNotNull { it.string("tag").takeIf(String::isNotBlank) }
+            .toSet()
+        val outbounds = rawOutbounds.filterNot(::isProviderError).map { item ->
+            when (item.string("type")) {
+                "selector", "urltest" -> sanitizeGroup(item, validGroupTargets, proxyTags)
+                else -> item
+            }
+        }.toMutableList()
         if (outbounds.none { (it as? JsonObject)?.string("type") == "direct" }) {
             outbounds += buildJsonObject { put("type", "direct"); put("tag", "direct") }
         }
-        if (proxyTags.isNotEmpty() && outbounds.none { (it as? JsonObject)?.string("type") in setOf("selector", "urltest") }) {
+        if (proxyTags.isNotEmpty() && outbounds.none {
+                val item = it as? JsonObject ?: return@none false
+                item.string("type") == "selector" && item.string("tag").equals("Proxy", ignoreCase = true)
+            }) {
             outbounds.add(0, buildJsonObject {
                 put("type", "selector"); put("tag", "Proxy")
                 put("outbounds", JsonArray(proxyTags.map(::JsonPrimitive))); put("default", proxyTags.first())
@@ -289,12 +297,49 @@ class SubscriptionImporter(
         if (map["dns"] !is JsonObject) map["dns"] = buildJsonObject {
             put("servers", buildJsonArray { add(buildJsonObject { put("type", "local"); put("tag", "local") }) })
         }
+        val validRouteTargets = outbounds.mapNotNull { (it as? JsonObject)?.string("tag")?.takeIf(String::isNotBlank) }.toSet()
+        val fallbackRoute = when {
+            "Proxy" in validRouteTargets -> "Proxy"
+            proxyTags.firstOrNull { it in validRouteTargets } != null -> proxyTags.first { it in validRouteTargets }
+            "direct" in validRouteTargets -> "direct"
+            else -> validRouteTargets.firstOrNull()
+        }
         val route = ((map["route"] as? JsonObject)?.toMutableMap() ?: mutableMapOf()).apply {
             put("auto_detect_interface", JsonPrimitive(true))
-            if (get("final") == null && proxyTags.isNotEmpty()) put("final", JsonPrimitive("Proxy"))
+            val currentFinal = (get("final") as? JsonPrimitive)?.contentOrNull
+            if (currentFinal.isNullOrBlank() || currentFinal !in validRouteTargets) {
+                fallbackRoute?.let { put("final", JsonPrimitive(it)) }
+            }
         }
         map["route"] = JsonObject(route)
         return json.encodeToString(JsonObject.serializer(), JsonObject(map))
+    }
+
+    private fun isRouteServer(item: JsonObject): Boolean {
+        val type = item.string("type")
+        return item.string("tag").isNotBlank() &&
+            type !in setOf("direct", "block", "dns", "selector", "urltest") &&
+            !item.isProviderInfo() &&
+            !isProviderError(item)
+    }
+
+    private fun sanitizeGroup(item: JsonObject, validTargets: Set<String>, proxyTags: List<String>): JsonObject {
+        val values = item.toMutableMap()
+        val references = (item["outbounds"] as? JsonArray ?: JsonArray(emptyList()))
+            .mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+            .filter(validTargets::contains)
+            .distinct()
+            .let { current ->
+                if (current.isNotEmpty() || !item.string("tag").equals("Proxy", ignoreCase = true)) current
+                else proxyTags.filter(validTargets::contains)
+            }
+        values["outbounds"] = JsonArray(references.map(::JsonPrimitive))
+        if (item.string("type") == "selector") {
+            val currentDefault = (item["default"] as? JsonPrimitive)?.contentOrNull
+            references.firstOrNull()?.let { values["default"] = JsonPrimitive(currentDefault?.takeIf(references::contains) ?: it) }
+                ?: values.remove("default")
+        }
+        return JsonObject(values)
     }
 
     private fun buildConfig(proxies: List<JsonObject>): String = ensureRuntimeConfig(buildJsonObject {
@@ -399,19 +444,29 @@ class SubscriptionImporter(
 
     private fun decodeProfileTitle(value: String?): String? {
         val title = value?.trim()?.takeIf(String::isNotBlank) ?: return null
-        val urlDecoded = decode(title)
-        val encodedValue = urlDecoded.removePrefix("base64:").removePrefix("base64,").trim()
+        val urlDecoded = decodeHeaderValue(title)
+        val lower = urlDecoded.lowercase()
+        val encodedValue = when {
+            lower.startsWith("base64:") -> urlDecoded.substringAfter(':')
+            lower.startsWith("base64,") -> urlDecoded.substringAfter(',')
+            else -> urlDecoded
+        }.trim()
         val base64Decoded = decodeBase64(encodedValue)?.takeIf { decoded ->
             decoded.length in 1..80 && decoded.none { it == '\n' || it == '\r' }
         }
         // Не показываем пользователю служебный base64-префикс, если заголовок повреждён.
-        if (base64Decoded == null && urlDecoded.startsWith("base64:", ignoreCase = true)) return null
+        if (base64Decoded == null && lower.startsWith("base64:")) return null
         return (base64Decoded ?: urlDecoded).trim().take(80)
     }
 
     private fun JsonObject.string(key: String) = this[key]?.jsonPrimitive?.contentOrNull.orEmpty()
     private fun JsonObject.isProviderInfo(): Boolean = string("tag").contains("info", ignoreCase = true) || string("server").contains("info.", ignoreCase = true)
     private fun decode(value: String) = runCatching { URLDecoder.decode(value, StandardCharsets.UTF_8.name()) }.getOrDefault(value)
+    private fun decodeHeaderValue(value: String) = runCatching {
+        // URLDecoder treats '+' as a space, but '+' is a legal character in standard
+        // Base64 profile titles. Keep it intact while still decoding %xx escapes.
+        URLDecoder.decode(value.replace("+", "%2B"), StandardCharsets.UTF_8.name())
+    }.getOrDefault(value)
     private data class Fetched(
         val body: String,
         val name: String?,

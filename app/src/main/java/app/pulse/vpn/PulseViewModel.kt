@@ -71,7 +71,7 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
         if (SettingsManager.refreshOnOpen) viewModelScope.launch {
             delay(250)
             val selected = _state.value.selectedProfile
-            if (selected?.sourceUrl != null && repository.update(selected) is ImportResult.Success) reload()
+            if (selected?.sourceUrl != null && repository.update(selected) is ImportResult.Success) reloadInternal()
         }
         viewModelScope.launch { vpn.status.collect { value -> _state.update { it.copy(vpnStatus = value) } } }
         viewModelScope.launch { vpn.traffic.collect { value -> _state.update { it.copy(traffic = value) } } }
@@ -89,7 +89,9 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun reload(refreshRemote: Boolean = false) = viewModelScope.launch {
+    fun reload(refreshRemote: Boolean = false) = viewModelScope.launch { reloadInternal(refreshRemote) }
+
+    private suspend fun reloadInternal(refreshRemote: Boolean = false) {
         var profiles = repository.profiles()
         var selected = profiles.firstOrNull { it.id == repository.selectedId() }
         if (refreshRemote && selected?.sourceUrl != null) {
@@ -100,9 +102,21 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
                 selected = profiles.firstOrNull { it.id == refreshed.profile.id }
             }
         }
-        if (selected != null) repository.select(selected)
+        if (selected != null) {
+            // Rebuild the runtime config from the provider source so refreshes do not
+            // silently drop routing/DNS choices made in Settings.
+            repository.applyRoutingSettings(selected)
+            repository.select(selected)
+        }
         val servers = repository.servers(selected)
-        _state.update { it.copy(profiles = profiles, selectedProfile = selected, servers = servers, pingHistory = emptyMap()) }
+        _state.update {
+            it.copy(
+                profiles = profiles,
+                selectedProfile = selected,
+                servers = servers,
+                pingHistory = selected?.let(repository::pingHistory).orEmpty(),
+            )
+        }
     }
 
     fun import(input: String) = viewModelScope.launch {
@@ -111,7 +125,7 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
         when (val result = repository.importProfile(input)) {
             is ImportResult.Success -> {
                 val count = repository.servers(result.profile).size
-                reload()
+                reloadInternal()
                 _state.update {
                     it.copy(
                         importing = false,
@@ -126,18 +140,29 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
 
     fun updateProfile(profile: VpnProfile) = viewModelScope.launch {
         _state.update { it.copy(importing = true) }
-        when (val result = repository.update(profile)) {
-            is ImportResult.Success -> { reload(); showMessage("Подписка обновлена") }
-            is ImportResult.Error -> showMessage(result.message)
+        try {
+            when (val result = repository.update(profile)) {
+                is ImportResult.Success -> { reloadInternal(); showMessage("Подписка обновлена") }
+                is ImportResult.Error -> showMessage(result.message)
+            }
+        } finally {
+            _state.update { it.copy(importing = false) }
         }
-        _state.update { it.copy(importing = false) }
     }
 
     fun selectProfile(profile: VpnProfile) = viewModelScope.launch {
         if (_state.value.vpnStatus == Status.Started) vpn.stop()
         repository.select(profile)
+        repository.applyRoutingSettings(profile)
         val servers = repository.servers(profile)
-        _state.update { it.copy(selectedProfile = profile, servers = servers, pingHistory = emptyMap(), screen = Screen.HOME) }
+        _state.update {
+            it.copy(
+                selectedProfile = profile,
+                servers = servers,
+                pingHistory = repository.pingHistory(profile),
+                screen = Screen.HOME,
+            )
+        }
     }
 
     fun deleteProfile(profile: VpnProfile) = viewModelScope.launch {
@@ -200,6 +225,7 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
                 val sample = server.delayMs ?: -1
                 history[server.tag] = (history[server.tag].orEmpty() + sample).takeLast(20)
             }
+            _state.value.selectedProfile?.let { profile -> repository.savePingHistory(profile, history) }
             current.copy(
                 servers = if (SettingsManager.autoFastest && fastest != null) measured.map { it.copy(selected = it.tag == fastest.tag) } else measured,
                 pingHistory = history,
@@ -252,15 +278,19 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
         val remote = _state.value.profiles.filter { it.sourceUrl != null }
         if (remote.isEmpty()) return@launch showMessage("Нет удалённых подписок для обновления")
         _state.update { it.copy(importing = true) }
-        remote.forEach { profile ->
-            when (repository.update(profile)) {
-                is ImportResult.Success -> Unit
-                is ImportResult.Error -> Unit
+        var updated = 0
+        try {
+            remote.forEach { profile ->
+                when (repository.update(profile)) {
+                    is ImportResult.Success -> updated++
+                    is ImportResult.Error -> Unit
+                }
             }
+            reloadInternal()
+            showMessage("Обновлено подписок: $updated из ${remote.size}")
+        } finally {
+            _state.update { it.copy(importing = false) }
         }
-        reload()
-        _state.update { it.copy(importing = false) }
-        showMessage("Подписки обновлены")
     }
 
     fun setRoutingMode(value: String) = viewModelScope.launch {

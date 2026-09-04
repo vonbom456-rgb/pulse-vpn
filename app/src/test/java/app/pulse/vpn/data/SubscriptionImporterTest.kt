@@ -122,4 +122,59 @@ class SubscriptionImporterTest {
         val selector = root["outbounds"]!!.jsonArray.first { it.jsonObject["type"]?.jsonPrimitive?.content == "selector" }.jsonObject
         assertFalse(selector["outbounds"]!!.jsonArray.any { it.jsonPrimitive.content.contains("INFO") })
     }
+
+    @Test
+    fun retriesRedirectWhenFirstHttp200BodyIsNotACompatibleProfile() = runBlocking {
+        var calls = 0
+        val client = OkHttpClient.Builder().addInterceptor { chain ->
+            calls++
+            val body = if (calls == 1) "provider landing page" else
+                "vless://11111111-1111-4111-8111-111111111111@example.com:443?security=tls#Stable"
+            Response.Builder()
+                .request(chain.request())
+                .protocol(Protocol.HTTP_1_1)
+                .code(200)
+                .message("OK")
+                .body(body.toResponseBody("text/plain".toMediaType()))
+                .build()
+        }.build()
+
+        val result = SubscriptionImporter(client = client).import("https://provider.example/sub/token/redirect/auto")
+
+        assertEquals(2, calls)
+        assertTrue(Json.parseToJsonElement(result.config).jsonObject["outbounds"]!!.jsonArray.any {
+            it.jsonObject["tag"]?.jsonPrimitive?.content == "Stable"
+        })
+    }
+
+    @Test
+    fun removesInfoAndDnsFromExistingSelectorAndRepairsFinalRoute() = runBlocking {
+        val result = SubscriptionImporter().import(
+            """{"outbounds":[{"type":"vless","tag":"Stable","server":"stable.example","server_port":443},{"type":"vless","tag":"📋 INFO | @pulse_support","server":"info.example","server_port":443},{"type":"dns","tag":"dns"},{"type":"selector","tag":"Proxy","outbounds":["📋 INFO | @pulse_support","dns","Stable"],"default":"📋 INFO | @pulse_support"}],"route":{"final":"📋 INFO | @pulse_support"}}""",
+        )
+        val root = Json.parseToJsonElement(result.config).jsonObject
+        val selector = root["outbounds"]!!.jsonArray.first {
+            it.jsonObject["type"]?.jsonPrimitive?.content == "selector"
+        }.jsonObject
+        assertEquals(listOf("Stable"), selector["outbounds"]!!.jsonArray.map { it.jsonPrimitive.content })
+        assertEquals("Stable", selector["default"]!!.jsonPrimitive.content)
+        assertEquals("Proxy", root["route"]!!.jsonObject["final"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun decodesUppercaseBase64ProfileTitleWithoutLosingPlusCharacters() = runBlocking {
+        val title = Base64.getEncoder().encodeToString("Pulse+Ocean".toByteArray())
+        val client = OkHttpClient.Builder().addInterceptor { chain ->
+            Response.Builder()
+                .request(chain.request())
+                .protocol(Protocol.HTTP_1_1)
+                .code(200)
+                .message("OK")
+                .header("profile-title", "BASE64:$title")
+                .body("vless://11111111-1111-4111-8111-111111111111@example.com:443#Stable".toResponseBody("text/plain".toMediaType()))
+                .build()
+        }.build()
+
+        assertEquals("Pulse+Ocean", SubscriptionImporter(client = client).import("https://provider.example/sub/token").name)
+    }
 }
