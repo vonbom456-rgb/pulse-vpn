@@ -420,7 +420,8 @@ private fun SubscriptionHeaderCard(
     val profileName = displayProfileName(profile)
     val expires = profile.expireAt?.takeIf { it > 0 }
     val daysLeft = expires?.let {
-        TimeUnit.MILLISECONDS.toDays((it * 1000L - System.currentTimeMillis()).coerceAtLeast(0L)).toInt()
+        val remaining = it * 1000L - System.currentTimeMillis()
+        if (remaining <= 0L) 0 else ((remaining + TimeUnit.DAYS.toMillis(1) - 1L) / TimeUnit.DAYS.toMillis(1)).toInt()
     }
     val used = (profile.uploadBytes ?: 0L) + (profile.downloadBytes ?: 0L)
     val bestPing = servers.mapNotNull(VpnServer::delayMs).minOrNull()
