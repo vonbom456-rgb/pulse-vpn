@@ -297,7 +297,11 @@ class SubscriptionImporter(
         if (map["dns"] !is JsonObject) map["dns"] = buildJsonObject {
             put("servers", buildJsonArray { add(buildJsonObject { put("type", "local"); put("tag", "local") }) })
         }
-        val validRouteTargets = outbounds.mapNotNull { (it as? JsonObject)?.string("tag")?.takeIf(String::isNotBlank) }.toSet()
+        val validRouteTargets = outbounds.mapNotNull { element ->
+            val item = element as? JsonObject ?: return@mapNotNull null
+            item.takeIf { it.string("type") != "dns" && !it.isProviderInfo() && !isProviderError(it) }
+                ?.string("tag")?.takeIf(String::isNotBlank)
+        }.toSet()
         val fallbackRoute = when {
             "Proxy" in validRouteTargets -> "Proxy"
             proxyTags.firstOrNull { it in validRouteTargets } != null -> proxyTags.first { it in validRouteTargets }

@@ -234,7 +234,11 @@ class ProfileRepository(
                 "default" to JsonPrimitive(routeTags.first()),
             )))
         }
-        val validRouteTargets = outbounds.mapNotNull { (it as? JsonObject)?.value("tag")?.takeIf(String::isNotBlank) }.toSet()
+        val validRouteTargets = outbounds.mapNotNull { element ->
+            val item = element as? JsonObject ?: return@mapNotNull null
+            item.takeIf { it.value("type") != "dns" && !it.isProviderInfo() && !it.isProviderError() }
+                ?.value("tag")?.takeIf(String::isNotBlank)
+        }.toSet()
         val selectedSetting = preferences.getString(selectedServerKey(profile), null)
         val selected = selectedSetting?.takeIf { it in routeTags }
             ?: routeTags.firstOrNull()
