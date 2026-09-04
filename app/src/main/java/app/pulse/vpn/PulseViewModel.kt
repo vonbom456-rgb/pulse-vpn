@@ -160,11 +160,15 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
         val measured = coroutineScope {
             snapshot.map { server ->
                 async(Dispatchers.IO) {
-                    val delay = if (server.address != null && server.port != null) runCatching {
-                        val started = System.nanoTime()
-                        Socket().use { it.connect(InetSocketAddress(server.address, server.port), 1600) }
-                        ((System.nanoTime() - started) / 1_000_000).toInt()
-                    }.getOrNull() else null
+                    val delay = if (server.address != null && server.port != null) {
+                        var measured: Int? = null
+                        repeat(2) { if (measured == null) measured = runCatching {
+                            val started = System.nanoTime()
+                            Socket().use { it.connect(InetSocketAddress(server.address, server.port), 2200) }
+                            ((System.nanoTime() - started) / 1_000_000).toInt()
+                        }.getOrNull() }
+                        measured
+                    } else null
                     server.copy(delayMs = delay)
                 }
             }.awaitAll()
