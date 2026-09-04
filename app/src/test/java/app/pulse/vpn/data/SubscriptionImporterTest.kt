@@ -98,4 +98,28 @@ class SubscriptionImporterTest {
         assertFalse(result.exceptionOrNull()?.message.orEmpty().contains("VLESS"))
         assertTrue(result.exceptionOrNull()?.message.orEmpty().contains("Провайдер"))
     }
+
+    @Test
+    fun keepsProviderInfoOutOfRoutesAndNormalizesMillisecondExpiry() = runBlocking {
+        val client = OkHttpClient.Builder().addInterceptor { chain ->
+            Response.Builder()
+                .request(chain.request())
+                .protocol(Protocol.HTTP_1_1)
+                .code(200)
+                .message("OK")
+                .header("subscription-userinfo", "upload=1; download=2; total=300; expire=1788885540000")
+                .body(
+                    """{"outbounds":[{"type":"vless","tag":"🇫🇮 Finland","server":"fi.example","server_port":443},{"type":"direct","tag":"direct"},{"type":"block","tag":"block"},{"type":"vless","tag":"📋 INFO | @pulse_support | https://pulse.example","server":"info.cdn.example","server_port":443}]}"""
+                        .toResponseBody("application/json".toMediaType()),
+                )
+                .build()
+        }.build()
+        val result = SubscriptionImporter(client = client).import("https://provider.example/sub/token")
+        val root = Json.parseToJsonElement(result.config).jsonObject
+        assertEquals(1788885540L, result.userInfo.expire)
+        assertEquals("https://t.me/pulse_support", result.providerTelegram)
+        assertEquals("https://pulse.example", result.providerWebsite)
+        val selector = root["outbounds"]!!.jsonArray.first { it.jsonObject["type"]?.jsonPrimitive?.content == "selector" }.jsonObject
+        assertFalse(selector["outbounds"]!!.jsonArray.any { it.jsonPrimitive.content.contains("INFO") })
+    }
 }

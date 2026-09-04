@@ -40,8 +40,11 @@ data class PulseUiState(
     val traffic: TrafficSnapshot = TrafficSnapshot(),
     val importing: Boolean = false,
     val testingServers: Boolean = false,
+    val pingCompleted: Int = 0,
+    val pingTotal: Int = 0,
     val message: String? = null,
     val darkTheme: Boolean = SettingsManager.darkTheme,
+    val liveEffects: Boolean = SettingsManager.liveEffects,
     val accentTheme: String = SettingsManager.accentTheme,
     val autoConnect: Boolean = SettingsManager.autoConnect,
     val refreshOnOpen: Boolean = SettingsManager.refreshOnOpen,
@@ -144,6 +147,7 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun selectServer(server: VpnServer) = viewModelScope.launch {
+        if (server.isInfoMetadata()) return@launch
         val profile = _state.value.selectedProfile ?: return@launch
         repository.selectServer(profile, server)
         _state.update { current -> current.copy(servers = current.servers.map { it.copy(selected = it.tag == server.tag) }) }
@@ -158,23 +162,31 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
         }
         val snapshot = _state.value.servers.filterNot(VpnServer::isInfoMetadata)
         if (snapshot.isEmpty()) return@launch
-        _state.update { it.copy(testingServers = true, message = "Проверяем задержку всех серверов…") }
+        _state.update { it.copy(testingServers = true, pingCompleted = 0, pingTotal = snapshot.size, message = "Проверяем серверы: 0/${snapshot.size}") }
         val measured = coroutineScope {
             snapshot.map { server ->
                 async(Dispatchers.IO) {
                     val delay = if (server.address != null && server.port != null) {
-                        var measured: Int? = null
                         val addresses = runCatching { InetAddress.getAllByName(server.address) }.getOrElse { emptyArray() }
-                        repeat(2) { if (measured == null) addresses.forEach { address ->
-                            if (measured == null) measured = runCatching {
-                                val started = System.nanoTime()
-                                Socket().use { it.connect(InetSocketAddress(address, server.port), 2200) }
-                                ((System.nanoTime() - started) / 1_000_000).toInt()
-                            }.getOrNull()
-                        } }
-                        measured
+                        suspend fun probeAll(): Int? = coroutineScope {
+                            addresses.map { address ->
+                                async(Dispatchers.IO) {
+                                    runCatching {
+                                        val started = System.nanoTime()
+                                        Socket().use { it.connect(InetSocketAddress(address, server.port), 1200) }
+                                        ((System.nanoTime() - started) / 1_000_000).toInt()
+                                    }.getOrNull()
+                                }
+                            }.awaitAll().filterNotNull().minOrNull()
+                        }
+                        probeAll() ?: run { delay(120); probeAll() }
                     } else null
-                    server.copy(delayMs = delay)
+                    server.copy(delayMs = delay).also {
+                        _state.update { current ->
+                            val completed = (current.pingCompleted + 1).coerceAtMost(current.pingTotal)
+                            current.copy(pingCompleted = completed, message = "Проверяем серверы: $completed/${current.pingTotal}")
+                        }
+                    }
                 }
             }.awaitAll()
         }.sortedWith(compareBy<VpnServer> { it.delayMs == null }.thenBy { it.delayMs ?: Int.MAX_VALUE })
@@ -192,6 +204,8 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
                 servers = if (SettingsManager.autoFastest && fastest != null) measured.map { it.copy(selected = it.tag == fastest.tag) } else measured,
                 pingHistory = history,
                 testingServers = false,
+                pingCompleted = measured.size,
+                pingTotal = measured.size,
                 message = "Проверено серверов: ${measured.count { server -> server.delayMs != null }} из ${measured.size}",
             )
         }
@@ -207,6 +221,11 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
     fun setDarkTheme(value: Boolean) {
         SettingsManager.darkTheme = value
         _state.update { it.copy(darkTheme = value) }
+    }
+
+    fun setLiveEffects(value: Boolean) {
+        SettingsManager.liveEffects = value
+        _state.update { it.copy(liveEffects = value) }
     }
 
     fun setAccentTheme(value: String) {
@@ -271,7 +290,12 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun clearMessage() = _state.update { it.copy(message = null) }
-    private fun showMessage(value: String) = _state.update { it.copy(message = value) }
+    private fun showMessage(value: String) {
+        // INFO/provider metadata is never a route. Do not surface stale selections from
+        // older profile files as a route notification.
+        if (value.contains("INFO", ignoreCase = true) && value.startsWith("Маршрут")) return
+        _state.update { it.copy(message = value) }
+    }
     fun coreVersion(): String = runCatching { Libbox.version() }.getOrDefault("sing-box")
 
     override fun onCleared() {

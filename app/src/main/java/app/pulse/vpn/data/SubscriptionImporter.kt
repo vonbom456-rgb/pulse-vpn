@@ -43,7 +43,9 @@ class SubscriptionImporter(
         val remote = trimmed.startsWith("https://") || trimmed.startsWith("http://")
         val response = if (remote) fetchCompatible(trimmed) else Fetched(trimmed, null, SubscriptionUserInfo())
         val normalized = response.normalized ?: normalize(response.body)
-        val metadata = detectProviderMetadata(normalized)
+        // Read provider metadata before runtime normalization: INFO entries are kept
+        // only as provider metadata and are never added to the selectable route list.
+        val metadata = detectProviderMetadata(response.body).merge(detectProviderMetadata(normalized))
         ImportedProfile(
             name = response.name ?: guessName(trimmed, normalized),
             config = normalized,
@@ -68,8 +70,8 @@ class SubscriptionImporter(
         var lastError: Throwable? = null
         agents.distinct().forEach { userAgent ->
             runCatching {
-                val fetched = fetch(url, userAgent, identity)
-                fetched.copy(normalized = normalize(fetched.body))
+                // Normalize once in import(), after metadata has been captured.
+                fetch(url, userAgent, identity)
             }.onSuccess { return it }.onFailure { lastError = it }
         }
         throw IllegalArgumentException(
@@ -257,8 +259,9 @@ class SubscriptionImporter(
         val providerErrors = outbounds.filterIsInstance<JsonObject>().filter(::isProviderError)
         outbounds.removeAll(providerErrors.toSet())
         val originalProxyCount = outbounds.count { element ->
-            val type = (element as? JsonObject)?.string("type").orEmpty()
-            type !in setOf("direct", "block", "dns", "selector", "urltest")
+            val item = element as? JsonObject ?: return@count false
+            val type = item.string("type")
+            type !in setOf("direct", "block", "dns", "selector", "urltest") && !item.isProviderInfo()
         }
         if (providerErrors.isNotEmpty() && originalProxyCount == 0) {
             error("Провайдер не выдал серверы. Проверьте лимит устройств или обновите подписку.")
@@ -266,7 +269,7 @@ class SubscriptionImporter(
         val proxyTags = outbounds.mapNotNull { element ->
             val item = element as? JsonObject ?: return@mapNotNull null
             val type = item.string("type")
-            item.string("tag").takeIf { it.isNotBlank() && type !in setOf("direct", "block", "dns", "selector", "urltest") }
+            item.string("tag").takeIf { it.isNotBlank() && type !in setOf("direct", "block", "dns", "selector", "urltest") && !item.isProviderInfo() }
         }
         if (outbounds.none { (it as? JsonObject)?.string("type") == "direct" }) {
             outbounds += buildJsonObject { put("type", "direct"); put("tag", "direct") }
@@ -364,21 +367,28 @@ class SubscriptionImporter(
         }
     }.getOrNull()
 
-    private fun detectProviderMetadata(config: String): ProviderMetadata = runCatching {
-        val root = json.parseToJsonElement(config).jsonObject
-        val text = ((root["outbounds"] as? JsonArray) ?: JsonArray(emptyList())).mapNotNull { element ->
-            val item = element as? JsonObject ?: return@mapNotNull null
-            val tag = item.string("tag")
-            val server = item.string("server")
-            if (tag.contains("info", true) || server.contains("info.", true)) tag else null
-        }.firstOrNull().orEmpty()
-        val description = text.replace(Regex("(?i).*\\binfo\\b\\s*[|:·\\-]?\\s*"), "")
-            .replace(Regex("\\s+"), " ").trim(' ', '|', ':', '·', '-')
-            .takeIf { it.isNotBlank() && !it.equals(text.trim(), true) }
-        val telegram = Regex("(?<![A-Za-z0-9_])@[A-Za-z0-9_]{4,}").find(text)?.value?.let { "https://t.me/${it.removePrefix("@")}" }
-        val website = Regex("https?://[^\\s|]+", RegexOption.IGNORE_CASE).find(text)?.value?.trimEnd('.', ',', ')', ']')
-        ProviderMetadata(description, telegram, website)
-    }.getOrDefault(ProviderMetadata())
+    private fun detectProviderMetadata(config: String): ProviderMetadata {
+        val candidates = sequenceOf(config, decodeBase64(config).orEmpty())
+            .filter(String::isNotBlank)
+            .mapNotNull { candidate -> runCatching { json.parseToJsonElement(candidate).jsonObject }.getOrNull() }
+            .toList()
+        return candidates.asSequence().map { root ->
+            val text = ((root["outbounds"] as? JsonArray) ?: JsonArray(emptyList())).mapNotNull { element ->
+                val item = element as? JsonObject ?: return@mapNotNull null
+                val tag = item.string("tag")
+                val server = item.string("server")
+                if (tag.contains("info", true) || server.contains("info.", true)) {
+                    listOfNotNull(tag.takeIf(String::isNotBlank), item.string("description").takeIf(String::isNotBlank), item.string("remarks").takeIf(String::isNotBlank)).joinToString(" | ")
+                } else null
+            }.firstOrNull().orEmpty()
+            val description = text.replace(Regex("(?i).*\\binfo\\b\\s*[|:·\\-]?\\s*"), "")
+                .replace(Regex("\\s+"), " ").trim(' ', '|', ':', '·', '-')
+                .takeIf { it.isNotBlank() && !it.equals(text.trim(), true) }
+            val telegram = Regex("(?<![A-Za-z0-9_])@[A-Za-z0-9_]{4,}").find(text)?.value?.let { "https://t.me/${it.removePrefix("@")}" }
+            val website = Regex("https?://[^\\s|]+", RegexOption.IGNORE_CASE).find(text)?.value?.trimEnd('.', ',', ')', ']')
+            ProviderMetadata(description, telegram, website)
+        }.firstOrNull { it.hasAny } ?: ProviderMetadata()
+    }
 
     private fun guessName(input: String, config: String): String = runCatching {
         if (input.startsWith("http")) URI(input).host.removePrefix("www.") else {
@@ -400,6 +410,7 @@ class SubscriptionImporter(
     }
 
     private fun JsonObject.string(key: String) = this[key]?.jsonPrimitive?.contentOrNull.orEmpty()
+    private fun JsonObject.isProviderInfo(): Boolean = string("tag").contains("info", ignoreCase = true) || string("server").contains("info.", ignoreCase = true)
     private fun decode(value: String) = runCatching { URLDecoder.decode(value, StandardCharsets.UTF_8.name()) }.getOrDefault(value)
     private data class Fetched(
         val body: String,
@@ -412,5 +423,13 @@ class SubscriptionImporter(
         val description: String? = null,
         val telegram: String? = null,
         val website: String? = null,
-    )
+    ) {
+        val hasAny: Boolean get() = description != null || telegram != null || website != null
+
+        fun merge(fallback: ProviderMetadata): ProviderMetadata = ProviderMetadata(
+            description ?: fallback.description,
+            telegram ?: fallback.telegram,
+            website ?: fallback.website,
+        )
+    }
 }
