@@ -150,8 +150,8 @@ fun PulseApp(
 ) {
     val state by viewModel.state.collectAsState()
     var showImport by remember { mutableStateOf(false) }
-    LaunchedEffect(state.message) {
-        if (state.message?.startsWith("Подписка добавлена") == true) {
+    LaunchedEffect(state.message, state.importing, state.testingServers) {
+        if (state.message != null && !state.importing && !state.testingServers) {
             delay(3200)
             viewModel.clearMessage()
         }
