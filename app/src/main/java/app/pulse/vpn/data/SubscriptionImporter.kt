@@ -48,6 +48,7 @@ class SubscriptionImporter(
             config = normalized,
             sourceUrl = trimmed.takeIf { remote },
             userInfo = response.userInfo,
+            themeHint = detectTheme(normalized),
         )
     }
 
@@ -342,8 +343,22 @@ class SubscriptionImporter(
             val key = it.substringBefore('=').trim(); val number = it.substringAfter('=', "").trim().toLongOrNull()
             number?.let { n -> key to n }
         }.toMap()
-        return SubscriptionUserInfo(values["upload"], values["download"], values["total"], values["expire"])
+        fun seconds(key: String): Long? = values[key]?.let { if (it > 100_000_000_000L) it / 1000L else it }
+        return SubscriptionUserInfo(values["upload"], values["download"], values["total"], seconds("expire"))
     }
+
+    /** Providers sometimes attach a purely visual hint to the root JSON. Unknown values are ignored. */
+    private fun detectTheme(config: String): String? = runCatching {
+        val root = json.parseToJsonElement(config).jsonObject
+        val raw = sequenceOf("theme", "theme_name", "ui_theme", "appearance")
+            .mapNotNull { key -> (root[key] as? JsonPrimitive)?.contentOrNull }
+            .firstOrNull()
+            ?.lowercase()
+        when (raw) {
+            "pulse", "ocean", "ember", "mono", "midnight" -> raw
+            else -> null
+        }
+    }.getOrNull()
 
     private fun guessName(input: String, config: String): String = runCatching {
         if (input.startsWith("http")) URI(input).host.removePrefix("www.") else {

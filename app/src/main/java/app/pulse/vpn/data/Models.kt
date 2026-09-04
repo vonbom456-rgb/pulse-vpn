@@ -12,6 +12,8 @@ data class VpnProfile(
     val downloadBytes: Long? = null,
     val totalBytes: Long? = null,
     val expireAt: Long? = null,
+    /** Optional provider hint. It is never used as a routing/configuration field. */
+    val themeHint: String? = null,
 )
 
 data class VpnServer(
@@ -32,6 +34,7 @@ data class ImportedProfile(
     val config: String,
     val sourceUrl: String?,
     val userInfo: SubscriptionUserInfo,
+    val themeHint: String? = null,
 )
 
 data class SubscriptionUserInfo(

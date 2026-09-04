@@ -23,9 +23,20 @@ object PulseColors {
     val Stroke = Color(0x22FFFFFF)
 }
 
-private val DarkColors = darkColorScheme(
-    primary = PulseColors.Violet,
-    secondary = PulseColors.Cyan,
+private fun darkColors(accent: String) = darkColorScheme(
+    primary = when (accent) {
+        "ocean" -> Color(0xFF3D9CFF)
+        "ember" -> Color(0xFFFF6B4A)
+        "mono" -> Color(0xFFB7BBC8)
+        "midnight" -> Color(0xFF8A7DFF)
+        else -> PulseColors.Violet
+    },
+    secondary = when (accent) {
+        "ocean" -> Color(0xFF27D7C5)
+        "ember" -> Color(0xFFFFB45C)
+        "mono" -> Color(0xFFE0E2EA)
+        else -> PulseColors.Cyan
+    },
     background = PulseColors.Ink,
     surface = PulseColors.Surface,
     surfaceVariant = PulseColors.SurfaceHigh,
@@ -46,9 +57,9 @@ private val LightColors = lightColorScheme(
 )
 
 @Composable
-fun PulseTheme(dark: Boolean, content: @Composable () -> Unit) {
+fun PulseTheme(dark: Boolean, accent: String = "pulse", content: @Composable () -> Unit) {
     MaterialTheme(
-        colorScheme = if (dark) DarkColors else LightColors,
+        colorScheme = if (dark) darkColors(accent) else LightColors,
         typography = androidx.compose.material3.Typography(
             displayLarge = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Light, fontSize = 56.sp, letterSpacing = (-2).sp),
             headlineLarge = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.SemiBold, fontSize = 30.sp, letterSpacing = (-0.8).sp),

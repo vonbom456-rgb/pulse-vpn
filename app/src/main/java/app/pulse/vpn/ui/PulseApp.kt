@@ -1053,7 +1053,34 @@ private fun SettingsScreen(state: PulseUiState, viewModel: PulseViewModel, openV
             ChoiceRow("DNS", state.dnsMode, listOf("local" to "Из профиля", "cloudflare" to "Cloudflare", "google" to "Google"), viewModel::setDnsMode)
         }
         SectionLabel("ВИД")
-        SettingsCard { SettingSwitch(Icons.Outlined.Tune, "Тёмная тема", "Фирменная тема Pulse", state.darkTheme, viewModel::setDarkTheme) }
+        SettingsCard {
+            SettingSwitch(Icons.Outlined.Tune, "Тёмная тема", "Фирменная тема Pulse", state.darkTheme, viewModel::setDarkTheme)
+            DividerInset()
+            ChoiceRow(
+                "Цвет интерфейса", state.accentTheme,
+                listOf(
+                    "profile" to "Тема подписки",
+                    "pulse" to "Pulse",
+                    "ocean" to "Ocean",
+                    "ember" to "Ember",
+                    "mono" to "Mono",
+                ), viewModel::setAccentTheme,
+            )
+            DividerInset()
+            SettingAction(Icons.Outlined.AutoGraph, "Живые эффекты", "Анимации, плавные переходы и пульсация включены", {})
+        }
+        SectionLabel("ПРОТОКОЛЫ")
+        SettingsCard {
+            val protocols = state.servers.filterNot(VpnServer::isInfoMetadata).groupingBy { it.type.uppercase() }.eachCount()
+            SettingAction(
+                Icons.Outlined.Route,
+                "Поддерживаемые протоколы",
+                if (protocols.isEmpty()) "Добавьте подписку, чтобы увидеть протоколы" else protocols.entries.joinToString(" · ") { "${it.key}: ${it.value}" },
+                { viewModel.navigate(Screen.ROUTES) },
+            )
+            DividerInset()
+            SettingAction(Icons.Outlined.Speed, "Диагностика серверов", "Пинг, доступность и история последних проверок", { viewModel.navigate(Screen.ROUTES) })
+        }
         SectionLabel("О ПРИЛОЖЕНИИ")
         SettingsCard {
             SettingAction(Icons.Outlined.Info, "Pulse VPN 0.5", "Kotlin · Compose · sing-box", {})

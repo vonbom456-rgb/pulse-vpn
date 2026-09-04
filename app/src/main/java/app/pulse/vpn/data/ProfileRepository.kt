@@ -35,7 +35,17 @@ class ProfileRepository(
             val configFile = File(directory, "using_config.json")
             configFile.writeText(imported.config)
             val info = imported.userInfo
-            val profile = VpnProfile(id, imported.name, imported.sourceUrl, System.currentTimeMillis(), info.upload, info.download, info.total, info.expire)
+            val profile = VpnProfile(
+                id = id,
+                name = imported.name,
+                sourceUrl = imported.sourceUrl,
+                updatedAt = System.currentTimeMillis(),
+                uploadBytes = info.upload,
+                downloadBytes = info.download,
+                totalBytes = info.total,
+                expireAt = info.expire,
+                themeHint = imported.themeHint,
+            )
             File(directory, "profile.json").writeText(json.encodeToString(profile))
             select(profile)
             ImportResult.Success(profile)
@@ -53,6 +63,7 @@ class ProfileRepository(
                     name = imported.name, updatedAt = System.currentTimeMillis(),
                     uploadBytes = imported.userInfo.upload, downloadBytes = imported.userInfo.download,
                     totalBytes = imported.userInfo.total, expireAt = imported.userInfo.expire,
+                    themeHint = imported.themeHint,
                 )
                 File(directory, "profile.json").writeText(json.encodeToString(updated))
                 if (selectedId() == updated.id) select(updated)

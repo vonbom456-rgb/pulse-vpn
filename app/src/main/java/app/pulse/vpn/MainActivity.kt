@@ -28,7 +28,10 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             val state by viewModel.state.collectAsState()
-            PulseTheme(dark = state.darkTheme) {
+            val activeAccent = if (state.accentTheme == "profile") {
+                state.selectedProfile?.themeHint ?: "pulse"
+            } else state.accentTheme
+            PulseTheme(dark = state.darkTheme, accent = activeAccent) {
                 PulseApp(
                     viewModel = viewModel,
                     requestConnect = {

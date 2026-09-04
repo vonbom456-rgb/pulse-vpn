@@ -32,6 +32,10 @@ object SettingsManager {
     var darkTheme: Boolean
         get() = storage.decodeBool(Keys.DARK_THEME, true)
         set(value) { storage.encode(Keys.DARK_THEME, value); storage.sync() }
+    /** Visual accent. `profile` follows a theme hint embedded by a provider, `pulse` is the reset. */
+    var accentTheme: String
+        get() = storage.decodeString(Keys.ACCENT_THEME, "profile") ?: "profile"
+        set(value) { storage.encode(Keys.ACCENT_THEME, value); storage.sync() }
     var routingMode: String
         get() = storage.decodeString(Keys.ROUTING_MODE, "rules") ?: "rules"
         set(value) { storage.encode(Keys.ROUTING_MODE, value); storage.sync() }
@@ -69,6 +73,7 @@ object SettingsManager {
         const val SYSTEM_PROXY_ENABLED = "system_proxy_enabled"
         const val AUTO_REDIRECT = "auto_redirect"
         const val DARK_THEME = "dark_theme"
+        const val ACCENT_THEME = "accent_theme"
         const val ROUTING_MODE = "routing_mode"
         const val DNS_MODE = "dns_mode"
         const val PER_APP_PROXY_MODE = "per_app_proxy_mode"

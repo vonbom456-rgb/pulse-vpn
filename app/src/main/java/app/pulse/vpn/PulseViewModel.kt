@@ -25,6 +25,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
 import java.net.InetSocketAddress
+import java.net.InetAddress
 import java.net.Socket
 
 enum class Screen { HOME, ROUTES, STATS, SETTINGS, PROFILES, APPS }
@@ -41,6 +42,7 @@ data class PulseUiState(
     val testingServers: Boolean = false,
     val message: String? = null,
     val darkTheme: Boolean = SettingsManager.darkTheme,
+    val accentTheme: String = SettingsManager.accentTheme,
     val autoConnect: Boolean = SettingsManager.autoConnect,
     val refreshOnOpen: Boolean = SettingsManager.refreshOnOpen,
     val autoFastest: Boolean = SettingsManager.autoFastest,
@@ -162,11 +164,14 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
                 async(Dispatchers.IO) {
                     val delay = if (server.address != null && server.port != null) {
                         var measured: Int? = null
-                        repeat(2) { if (measured == null) measured = runCatching {
-                            val started = System.nanoTime()
-                            Socket().use { it.connect(InetSocketAddress(server.address, server.port), 2200) }
-                            ((System.nanoTime() - started) / 1_000_000).toInt()
-                        }.getOrNull() }
+                        val addresses = runCatching { InetAddress.getAllByName(server.address) }.getOrElse { emptyArray() }
+                        repeat(2) { if (measured == null) addresses.forEach { address ->
+                            if (measured == null) measured = runCatching {
+                                val started = System.nanoTime()
+                                Socket().use { it.connect(InetSocketAddress(address, server.port), 2200) }
+                                ((System.nanoTime() - started) / 1_000_000).toInt()
+                            }.getOrNull()
+                        } }
                         measured
                     } else null
                     server.copy(delayMs = delay)
@@ -202,6 +207,11 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
     fun setDarkTheme(value: Boolean) {
         SettingsManager.darkTheme = value
         _state.update { it.copy(darkTheme = value) }
+    }
+
+    fun setAccentTheme(value: String) {
+        SettingsManager.accentTheme = value
+        _state.update { it.copy(accentTheme = value) }
     }
 
     fun setAutoConnect(value: Boolean) {
