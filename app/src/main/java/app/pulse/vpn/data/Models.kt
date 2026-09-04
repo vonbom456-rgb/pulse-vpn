@@ -14,6 +14,9 @@ data class VpnProfile(
     val expireAt: Long? = null,
     /** Optional provider hint. It is never used as a routing/configuration field. */
     val themeHint: String? = null,
+    val providerDescription: String? = null,
+    val providerTelegram: String? = null,
+    val providerWebsite: String? = null,
 )
 
 data class VpnServer(
@@ -35,6 +38,9 @@ data class ImportedProfile(
     val sourceUrl: String?,
     val userInfo: SubscriptionUserInfo,
     val themeHint: String? = null,
+    val providerDescription: String? = null,
+    val providerTelegram: String? = null,
+    val providerWebsite: String? = null,
 )
 
 data class SubscriptionUserInfo(

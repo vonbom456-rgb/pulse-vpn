@@ -428,12 +428,11 @@ private fun SubscriptionHeaderCard(
     val source = profile.sourceUrl?.let { runCatching { URI(it).host }.getOrNull() }
     val context = LocalContext.current
     val sourceLink = profile.sourceUrl
-    val infoServer = servers.firstOrNull { server ->
-        server.tag.contains("info", ignoreCase = true) || server.address?.contains("info.", ignoreCase = true) == true
-    }
-    val providerDescription = infoServer?.tag?.let(::extractInfoDescription)
-    val infoLink = extractHttpLink(infoServer?.tag) ?: sourceLink?.let(::rootLink)
-    val telegramLink = extractTelegramLink(infoServer?.tag)
+    // INFO-outbound is metadata, not a route. It is persisted during import so it can
+    // still be shown here without polluting the server list.
+    val providerDescription = profile.providerDescription
+    val infoLink = profile.providerWebsite ?: sourceLink?.let(::rootLink)
+    val telegramLink = profile.providerTelegram
     val routeServers = servers.filterNot(VpnServer::isInfoMetadata)
     Column(
         Modifier.fillMaxWidth()

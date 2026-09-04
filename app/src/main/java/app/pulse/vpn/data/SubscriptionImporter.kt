@@ -43,12 +43,16 @@ class SubscriptionImporter(
         val remote = trimmed.startsWith("https://") || trimmed.startsWith("http://")
         val response = if (remote) fetchCompatible(trimmed) else Fetched(trimmed, null, SubscriptionUserInfo())
         val normalized = response.normalized ?: normalize(response.body)
+        val metadata = detectProviderMetadata(normalized)
         ImportedProfile(
             name = response.name ?: guessName(trimmed, normalized),
             config = normalized,
             sourceUrl = trimmed.takeIf { remote },
             userInfo = response.userInfo,
             themeHint = detectTheme(normalized),
+            providerDescription = metadata.description,
+            providerTelegram = metadata.telegram,
+            providerWebsite = metadata.website,
         )
     }
 
@@ -360,6 +364,22 @@ class SubscriptionImporter(
         }
     }.getOrNull()
 
+    private fun detectProviderMetadata(config: String): ProviderMetadata = runCatching {
+        val root = json.parseToJsonElement(config).jsonObject
+        val text = ((root["outbounds"] as? JsonArray) ?: JsonArray(emptyList())).mapNotNull { element ->
+            val item = element as? JsonObject ?: return@mapNotNull null
+            val tag = item.string("tag")
+            val server = item.string("server")
+            if (tag.contains("info", true) || server.contains("info.", true)) tag else null
+        }.firstOrNull().orEmpty()
+        val description = text.replace(Regex("(?i).*\\binfo\\b\\s*[|:·\\-]?\\s*"), "")
+            .replace(Regex("\\s+"), " ").trim(' ', '|', ':', '·', '-')
+            .takeIf { it.isNotBlank() && !it.equals(text.trim(), true) }
+        val telegram = Regex("(?<![A-Za-z0-9_])@[A-Za-z0-9_]{4,}").find(text)?.value?.let { "https://t.me/${it.removePrefix("@")}" }
+        val website = Regex("https?://[^\\s|]+", RegexOption.IGNORE_CASE).find(text)?.value?.trimEnd('.', ',', ')', ']')
+        ProviderMetadata(description, telegram, website)
+    }.getOrDefault(ProviderMetadata())
+
     private fun guessName(input: String, config: String): String = runCatching {
         if (input.startsWith("http")) URI(input).host.removePrefix("www.") else {
             val first = json.parseToJsonElement(config).jsonObject["outbounds"]!!.jsonArray.first().jsonObject
@@ -386,5 +406,11 @@ class SubscriptionImporter(
         val name: String?,
         val userInfo: SubscriptionUserInfo,
         val normalized: String? = null,
+    )
+
+    private data class ProviderMetadata(
+        val description: String? = null,
+        val telegram: String? = null,
+        val website: String? = null,
     )
 }

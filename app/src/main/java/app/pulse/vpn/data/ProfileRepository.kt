@@ -45,6 +45,9 @@ class ProfileRepository(
                 totalBytes = info.total,
                 expireAt = info.expire,
                 themeHint = imported.themeHint,
+                providerDescription = imported.providerDescription,
+                providerTelegram = imported.providerTelegram,
+                providerWebsite = imported.providerWebsite,
             )
             File(directory, "profile.json").writeText(json.encodeToString(profile))
             select(profile)
@@ -64,6 +67,9 @@ class ProfileRepository(
                     uploadBytes = imported.userInfo.upload, downloadBytes = imported.userInfo.download,
                     totalBytes = imported.userInfo.total, expireAt = imported.userInfo.expire,
                     themeHint = imported.themeHint,
+                    providerDescription = imported.providerDescription,
+                    providerTelegram = imported.providerTelegram,
+                    providerWebsite = imported.providerWebsite,
                 )
                 File(directory, "profile.json").writeText(json.encodeToString(updated))
                 if (selectedId() == updated.id) select(updated)
