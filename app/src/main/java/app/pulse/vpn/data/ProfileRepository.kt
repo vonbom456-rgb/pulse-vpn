@@ -94,6 +94,8 @@ class ProfileRepository(
             if (type in setOf("direct", "block", "dns", "selector", "urltest")) return@mapNotNull null
             val tag = item.value("tag").ifBlank { type.uppercase() }
             val address = item.value("server").ifBlank { null }
+            // Provider INFO outbound is metadata/contact, never a VPN route.
+            if (tag.contains("info", ignoreCase = true) || address?.contains("info.", ignoreCase = true) == true) return@mapNotNull null
             if (
                 tag.startsWith("❌") ||
                 address?.startsWith("error.", ignoreCase = true) == true ||
