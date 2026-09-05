@@ -30,6 +30,7 @@ class PulseUiSmokeTest {
     }
 
     private fun snapshot(name: String) {
+        compose.mainClock.advanceTimeBy(1000)
         compose.waitForIdle()
         // UIAutomation captures the display, so allow its compositor to present the frame.
         InstrumentationRegistry.getInstrumentation().waitForIdleSync()

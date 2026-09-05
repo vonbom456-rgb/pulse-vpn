@@ -324,7 +324,7 @@ private fun HomeScreen(
             }
         }
 
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(16.dp))
         AnimatedContent(
             targetState = state.vpnStatus to (state.selectedProfile != null),
             label = "connection-title",
@@ -348,7 +348,7 @@ private fun HomeScreen(
                         status == Status.Starting -> "Настраиваем безопасный туннель"
                         else -> "Один импульс до приватности"
                     },
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = .48f),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 14.sp,
                 )
             }
@@ -363,6 +363,22 @@ private fun HomeScreen(
                 else -> connect
             },
         )
+        selected?.let { server ->
+            Row(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp))
+                    .background(MaterialTheme.colorScheme.secondaryContainer.copy(.35f))
+                    .clickable(onClick = routes).heightIn(min = 48.dp)
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Outlined.Route, null, tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(10.dp))
+                Text(server.tag, Modifier.weight(1f), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(server.delayMs?.let { "$it мс" } ?: "Сменить", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                Spacer(Modifier.width(6.dp))
+                Icon(Icons.Outlined.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
+            }
+        }
         state.selectedProfile?.let { profile ->
             Spacer(Modifier.height(12.dp))
             SubscriptionHeaderCard(
@@ -479,7 +495,7 @@ private fun SubscriptionHeaderCard(
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             SettingsMetric("СРОК", when { daysLeft == null -> "Без даты"; daysLeft == 0L -> "Истёк"; else -> "$daysLeft дн." }, Modifier.weight(1f))
             SettingsMetric("СЕРВЕРЫ", routeServers.size.toString(), Modifier.weight(1f))
-            SettingsMetric("ТРАФИК", total?.let { formatBytes((it - used).coerceAtLeast(0)) } ?: "Без лимита", Modifier.weight(1f))
+            SettingsMetric("ОСТАЛОСЬ", total?.let { formatBytes((it - used).coerceAtLeast(0)) } ?: "Без лимита", Modifier.weight(1f))
         }
         if (total != null) {
             Spacer(Modifier.height(12.dp))
@@ -650,14 +666,14 @@ private fun PulseConnectButton(status: Status, configured: Boolean, animated: Bo
         configured -> "Подключить"
         else -> "Добавить подписку"
     }
-    Box(Modifier.fillMaxWidth().height(238.dp), contentAlignment = Alignment.Center) {
-        Canvas(Modifier.size(234.dp)) {
+    Box(Modifier.fillMaxWidth().height(202.dp), contentAlignment = Alignment.Center) {
+        Canvas(Modifier.size(198.dp)) {
             drawCircle(Brush.radialGradient(listOf(accent.copy(.18f + pulse * .07f), Color.Transparent)))
             drawCircle(accent.copy(.10f), radius = size.minDimension * .48f, style = Stroke(1.dp.toPx()))
             drawCircle(accent.copy(.25f + pulse * .12f), radius = size.minDimension * (.40f + pulse * .018f), style = Stroke(1.dp.toPx()))
         }
         Column(
-            Modifier.size(166.dp).graphicsLayer { scaleX = scale; scaleY = scale }
+            Modifier.size(150.dp).graphicsLayer { scaleX = scale; scaleY = scale }
                 .clip(CircleShape)
                 .background(Brush.linearGradient(listOf(colors.primaryContainer, colors.surface)))
                 .border(1.5.dp, accent.copy(.7f), CircleShape)
@@ -1125,9 +1141,9 @@ private fun SettingsSnapshotCard(state: PulseUiState, openProfiles: () -> Unit, 
 @Composable
 private fun SettingsMetric(title: String, value: String, modifier: Modifier) {
     Column(modifier.clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.surfaceVariant.copy(.55f)).padding(horizontal = 10.dp, vertical = 9.dp)) {
-        Text(title, color = MaterialTheme.colorScheme.onSurface.copy(.42f), fontSize = 8.sp, fontWeight = FontWeight.Bold, letterSpacing = .8.sp, maxLines = 1)
+        Text(title, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = .5.sp, maxLines = 1)
         Spacer(Modifier.height(4.dp))
-        Text(value, color = MaterialTheme.colorScheme.onSurface, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(value, color = MaterialTheme.colorScheme.onSurface, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -1352,7 +1368,7 @@ private fun InlineBanner(message: String, close: () -> Unit) {
     }
 }
 
-@Composable private fun SectionLabel(text: String) { Spacer(Modifier.height(24.dp)); Text(text, color = MaterialTheme.colorScheme.onSurface.copy(.38f), fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp, modifier = Modifier.padding(start = 5.dp, bottom = 9.dp)) }
+@Composable private fun SectionLabel(text: String) { Spacer(Modifier.height(20.dp)); Text(text, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp, modifier = Modifier.padding(start = 5.dp, bottom = 9.dp)) }
 @Composable private fun SettingsCard(content: @Composable ColumnScope.() -> Unit) = PremiumCard(content = content)
 @Composable private fun DividerInset() = HorizontalDivider(Modifier.padding(start = 56.dp, top = 10.dp, bottom = 10.dp), color = MaterialTheme.colorScheme.onSurface.copy(.07f))
 

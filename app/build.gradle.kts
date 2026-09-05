@@ -13,8 +13,8 @@ android {
         applicationId = "app.pulse.vpn"
         minSdk = 26
         targetSdk = 36
-        versionCode = 44
-        versionName = "0.6.0-native"
+        versionCode = 45
+        versionName = "0.6.1-native"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
     }
