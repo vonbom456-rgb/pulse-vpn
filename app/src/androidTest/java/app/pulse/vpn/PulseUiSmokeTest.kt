@@ -31,6 +31,9 @@ class PulseUiSmokeTest {
 
     private fun snapshot(name: String) {
         compose.waitForIdle()
+        // UIAutomation captures the display, so allow its compositor to present the frame.
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+        android.os.SystemClock.sleep(400)
         val image = checkNotNull(InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot())
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val directory = File(context.getExternalFilesDir(null), "ui-review").apply { mkdirs() }

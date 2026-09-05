@@ -198,7 +198,7 @@ fun PulseApp(
                 visible = state.message != null,
                 enter = fadeIn() + scaleIn(initialScale = .96f),
                 exit = fadeOut(),
-                modifier = Modifier.align(Alignment.TopCenter).padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + if (state.screen == Screen.HOME) 148.dp else 12.dp, start = 20.dp, end = 20.dp),
+                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp, start = 20.dp, end = 20.dp),
             ) {
                 state.message?.let { InlineBanner(it, viewModel::clearMessage) }
             }
@@ -214,8 +214,10 @@ private fun PulseBackdrop(modifier: Modifier = Modifier, animated: Boolean = tru
         Canvas(modifier) {
             val width = size.width
             val height = size.height
-            drawCircle(Brush.radialGradient(listOf(primary.copy(.12f), Color.Transparent), radius = width * .62f), width * .62f, Offset(width * .16f, height * .2f))
-            drawCircle(Brush.radialGradient(listOf(secondary.copy(.08f), Color.Transparent), radius = width * .52f), width * .52f, Offset(width * .84f, height * .54f))
+            val primaryCenter = Offset(width * .16f, height * .2f)
+            val secondaryCenter = Offset(width * .84f, height * .54f)
+            drawCircle(Brush.radialGradient(listOf(primary.copy(.12f), Color.Transparent), center = primaryCenter, radius = width * .62f), width * .62f, primaryCenter)
+            drawCircle(Brush.radialGradient(listOf(secondary.copy(.08f), Color.Transparent), center = secondaryCenter, radius = width * .52f), width * .52f, secondaryCenter)
         }
         return
     }
@@ -231,8 +233,8 @@ private fun PulseBackdrop(modifier: Modifier = Modifier, animated: Boolean = tru
         val height = size.height
         val violet = Offset(width * (.12f + drift * .16f), height * (.18f + drift * .05f))
         val cyan = Offset(width * (.92f - drift * .18f), height * (.58f - drift * .08f))
-        drawCircle(Brush.radialGradient(listOf(primary.copy(.16f), Color.Transparent), radius = width * .62f), width * .62f, violet)
-        drawCircle(Brush.radialGradient(listOf(secondary.copy(.10f), Color.Transparent), radius = width * .52f), width * .52f, cyan)
+        drawCircle(Brush.radialGradient(listOf(primary.copy(.16f), Color.Transparent), center = violet, radius = width * .62f), width * .62f, violet)
+        drawCircle(Brush.radialGradient(listOf(secondary.copy(.10f), Color.Transparent), center = cyan, radius = width * .52f), width * .52f, cyan)
     }
 }
 
