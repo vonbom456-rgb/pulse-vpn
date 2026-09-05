@@ -1,7 +1,6 @@
 package app.pulse.vpn
 
 import android.graphics.Bitmap
-import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.lifecycle.ViewModelProvider
@@ -32,10 +31,11 @@ class PulseUiSmokeTest {
 
     private fun snapshot(name: String) {
         compose.waitForIdle()
-        val image = compose.onRoot().captureToImage().asAndroidBitmap()
+        val image = checkNotNull(InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot())
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val directory = File(context.getExternalFilesDir(null), "ui-review").apply { mkdirs() }
         File(directory, "$name.png").outputStream().use { image.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        image.recycle()
     }
 
     @Test fun importsDescriptionAndNavigatesEveryTheme() {
