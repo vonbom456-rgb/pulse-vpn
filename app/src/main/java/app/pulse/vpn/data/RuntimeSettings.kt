@@ -42,6 +42,11 @@ internal object RuntimeSettings {
             route["default_domain_resolver"] = JsonPrimitive(tag)
         }
         route["auto_detect_interface"] = JsonPrimitive(true)
+        // URI subscriptions often have no DNS rule. Capture system DNS requests so
+        // they actually use the configured resolver instead of being sent to a VPN node.
+        val rules = (route["rules"] as? JsonArray).orEmpty()
+        val hijack = buildJsonObject { put("port", 53); put("action", "hijack-dns") }
+        route["rules"] = JsonArray(listOf(hijack) + rules.filterNot { it == hijack })
         values["route"] = JsonObject(route)
         return JsonObject(values)
     }

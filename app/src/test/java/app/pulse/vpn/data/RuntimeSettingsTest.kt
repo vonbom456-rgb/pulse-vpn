@@ -13,14 +13,15 @@ class RuntimeSettingsTest {
         assertEquals("Proxy", runtime["route"]!!.jsonObject["final"]!!.jsonPrimitive.content)
         assertEquals("A", base["outbounds"]!!.jsonArray.first().jsonObject["default"]!!.jsonPrimitive.content)
         assertEquals(base["dns"], runtime["dns"])
-        assertEquals(base["route"]!!.jsonObject["rules"], runtime["route"]!!.jsonObject["rules"])
+        assertEquals(base["route"]!!.jsonObject["rules"]!!.jsonArray, runtime["route"]!!.jsonObject["rules"]!!.jsonArray.drop(1))
     }
 
     @Test fun allTrafficAndDirectOverrideProviderRoutesButRetainDnsHijack() {
         listOf("global" to "Proxy", "direct" to "direct").forEach { (mode, final) ->
             val route = RuntimeSettings.apply(base, "B", mode, "local")["route"]!!.jsonObject
             assertEquals(final, route["final"]!!.jsonPrimitive.content)
-            assertEquals(1, route["rules"]!!.jsonArray.size)
+            assertEquals(2, route["rules"]!!.jsonArray.size)
+            assertEquals(53, route["rules"]!!.jsonArray.first().jsonObject["port"]!!.jsonPrimitive.int)
             assertEquals("hijack-dns", route["rules"]!!.jsonArray.first().jsonObject["action"]!!.jsonPrimitive.content)
         }
     }
