@@ -90,6 +90,10 @@ These are implemented capabilities, not claims of 35 independently validated rea
 - Filter reset also resets the protocol restriction.
 - Screen privacy settings propagate to skipped/reused composables.
 - Turning off history persistence clears stored measurements.
+- Ping results no longer change the provider's displayed server order.
+- Last delays are restored when switching profiles, not only when reloading.
+- Wi-Fi refresh checks the active network, not an unrelated connected network.
+- Updated runtime settings are also saved for subsequent background/boot connections.
 
 ## Verification and limits
 
@@ -104,4 +108,3 @@ The signer SHA-256 is 8afbb9a7c07690d2ebd5e791edec2ac786d2a698e9c520a112b72cd7eb
 Keep the same key and increment versionCode for future updates.
 Old 0.6.x CI debug keys cannot be reconstructed from APKs. Moving from those builds requires a one-time reinstall;
 save subscription links before uninstalling. Subsequent releases using this signer can update in place.
-

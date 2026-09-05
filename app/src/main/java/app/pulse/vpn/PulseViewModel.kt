@@ -183,12 +183,13 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
         if (_state.value.vpnStatus != Status.Stopped) stopVpn()
         repository.select(profile)
         repository.applyRoutingSettings(profile)
-        val servers = repository.servers(profile)
+        val history = repository.pingHistory(profile)
+        val servers = repository.servers(profile).map { server -> server.copy(delayMs = history[server.tag]?.lastOrNull()?.takeIf { it >= 0 }) }
         _state.update {
             it.copy(
                 selectedProfile = profile,
                 servers = servers,
-                pingHistory = repository.pingHistory(profile),
+                pingHistory = history,
                 favorites = repository.favorites(profile),
                 connectionError = null,
                 screen = Screen.HOME,
@@ -268,7 +269,7 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
             if (_state.value.options.bool("save_history")) withContext(Dispatchers.IO) { repository.savePingHistory(owner, history) }
             _state.update { current ->
                 if (current.selectedProfile?.id != owner.id) current else current.copy(
-                    servers = sorted.map { it.copy(selected = it.tag == (if (autoSelect) fastest?.tag else current.servers.firstOrNull(VpnServer::selected)?.tag)) },
+                    servers = measured.map { it.copy(selected = it.tag == (if (autoSelect) fastest?.tag else current.servers.firstOrNull(VpnServer::selected)?.tag)) },
                     pingHistory = history,
                     pingCompleted = sorted.size,
                     message = "Доступно ${sorted.count { it.delayMs != null }} из ${sorted.size} серверов",
@@ -361,11 +362,13 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
     fun setRoutingMode(value: String) = viewModelScope.launch {
         SettingsManager.routingMode = value
         _state.update { it.copy(routingMode = value, settingsPending = it.vpnStatus != Status.Stopped) }
+        saveRuntimeSettings()
     }
 
     fun setDnsMode(value: String) = viewModelScope.launch {
         SettingsManager.dnsMode = value
         _state.update { it.copy(dnsMode = value, settingsPending = it.vpnStatus != Status.Stopped) }
+        saveRuntimeSettings()
         showMessage("DNS сохранён. Переподключитесь для применения")
     }
 
@@ -393,11 +396,19 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
         SettingsManager.advanced = updated
         _state.update { it.copy(options = updated, settingsPending = it.settingsPending || (OptionCatalog.byKey[key]?.reconnect == true && it.vpnStatus != Status.Stopped)) }
         if (key == "save_history" && value == "false") _state.value.profiles.forEach { repository.savePingHistory(it, emptyMap()) }
+        if (OptionCatalog.byKey[key]?.reconnect == true) saveRuntimeSettings()
     }
 
     fun resetAdvanced() {
         SettingsManager.advanced = AdvancedOptions()
         _state.update { it.copy(options = AdvancedOptions(), settingsPending = it.vpnStatus != Status.Stopped) }
+        viewModelScope.launch { saveRuntimeSettings() }
+    }
+
+    private suspend fun saveRuntimeSettings() {
+        try { _state.value.selectedProfile?.let { repository.applyRoutingSettings(it) } }
+        catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: Exception) { connectionFailed("Не удалось сохранить конфигурацию. Откройте приложение перед следующим подключением и повторите попытку.") }
     }
 
     fun clearPingHistory() {
@@ -429,9 +440,11 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
     private fun refreshNetworkAllowed(): Boolean {
         if (!_state.value.options.bool("wifi_refresh")) return true
         val manager = getApplication<Application>().getSystemService(android.net.ConnectivityManager::class.java)
-        return manager.allNetworks.any { network ->
-            manager.getNetworkCapabilities(network)?.let { it.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) && it.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) } == true
-        }
+        val network = manager.activeNetwork ?: return false
+        return manager.getNetworkCapabilities(network)?.let {
+            it.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) &&
+                it.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        } == true
     }
 
     fun clearMessage() = _state.update { it.copy(message = null) }
