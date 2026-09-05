@@ -61,8 +61,11 @@ jobs:
           profile: pixel_2
           disable-animations: true
           script: |
-            gradle :app:connectedDebugAndroidTest
+            adb install app/build/outputs/apk/debug/app-x86_64-debug.apk
+            adb install -t app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+            adb shell am instrument -w -r app.pulse.vpn.test/androidx.test.runner.AndroidJUnitRunner | tee ui-instrumentation.txt
             adb pull /sdcard/Android/data/app.pulse.vpn/files/ui-review ui-review
+            grep -q 'OK (2 tests)' ui-instrumentation.txt
       - name: UI screenshots and results
         if: always()
         uses: actions/upload-artifact@v4
@@ -70,5 +73,6 @@ jobs:
           name: pulse-ui-review
           path: |
             ui-review/*.png
+            ui-instrumentation.txt
             app/build/reports/androidTests/connected/
             app/build/outputs/androidTest-results/connected/
