@@ -28,8 +28,22 @@ jobs:
       - name: Android lint
         run: gradle :app:lintDebug --stacktrace
       - name: Release APKs
-        run: gradle :app:assembleRelease --stacktrace
+        if: github.event_name != 'pull_request'
+        env:
+          PULSE_KEYSTORE_BASE64: ${{ secrets.PULSE_KEYSTORE_BASE64 }}
+          PULSE_KEYSTORE_PASSWORD: ${{ secrets.PULSE_KEYSTORE_PASSWORD }}
+          PULSE_KEYSTORE_PATH: ${{ runner.temp }}/pulse-release.jks
+        run: |
+          test -n "$PULSE_KEYSTORE_BASE64" && test -n "$PULSE_KEYSTORE_PASSWORD"
+          umask 077
+          printf '%s' "$PULSE_KEYSTORE_BASE64" | base64 --decode > "$PULSE_KEYSTORE_PATH"
+          trap 'rm -f "$PULSE_KEYSTORE_PATH"' EXIT
+          gradle :app:assembleRelease --stacktrace
+          for apk in app/build/outputs/apk/release/*.apk; do
+            "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs "$apk" | grep -qi "8afbb9a7c07690d2ebd5e791edec2ac786d2a698e9c520a112b72cd7eb47ca36"
+          done
       - uses: actions/upload-artifact@v4
+        if: github.event_name != 'pull_request'
         with:
           name: pulse-vpn-native-release
           path: app/build/outputs/apk/release/*.apk

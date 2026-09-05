@@ -98,6 +98,8 @@ class ProfileRepository(
     }
 
     fun selectedId(): String? = preferences.getString("selected_id", null)
+    fun favorites(profile: VpnProfile): Set<String> = preferences.getStringSet("favorites_" + profile.id, emptySet()).orEmpty().toSet()
+    fun saveFavorites(profile: VpnProfile, values: Set<String>) { preferences.edit().putStringSet("favorites_" + profile.id, values).apply() }
 
     fun pingHistory(profile: VpnProfile): Map<String, List<Int>> = runCatching {
         val raw = preferences.getString(pingHistoryKey(profile), null) ?: return emptyMap()
@@ -123,7 +125,7 @@ class ProfileRepository(
             preferences.edit().remove("selected_id").apply()
             ProfileManager.clear()
         }
-        preferences.edit().remove(pingHistoryKey(profile)).apply()
+        preferences.edit().remove(pingHistoryKey(profile)).remove(selectedServerKey(profile)).remove("favorites_" + profile.id).apply()
     }
 
     suspend fun servers(profile: VpnProfile?): List<VpnServer> = withContext(Dispatchers.IO) {
@@ -243,7 +245,7 @@ class ProfileRepository(
         val selected = selectedSetting?.takeIf { it in routeTags } ?: routeTags.firstOrNull()
         if (selected != null && selected != selectedSetting) preferences.edit().putString(selectedServerKey(profile), selected).apply()
         val sanitized = JsonObject(base + ("outbounds" to JsonArray(outbounds)))
-        val effective = RuntimeSettings.apply(sanitized, selected, SettingsManager.routingMode, SettingsManager.dnsMode)
+        val effective = RuntimeSettings.apply(sanitized, selected, SettingsManager.routingMode, SettingsManager.dnsMode, SettingsManager.advanced)
         val file = runtimeConfigFile(profile)
         file.writeText(json.encodeToString(JsonObject.serializer(), effective))
         if (selectedId() == profile.id) ProfileManager.select(profile.name, file)

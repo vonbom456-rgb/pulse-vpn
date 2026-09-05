@@ -67,7 +67,7 @@ class VpnController(context: Context) : ServiceConnection.Callback, CommandClien
         _error.value = when (type) {
             Alert.EmptyConfiguration -> "Сначала добавьте и выберите профиль"
             Alert.RequestLocationPermission -> "Для этой конфигурации требуется доступ к геолокации"
-            else -> "VPN не запустился: ${message ?: type.name}"
+            else -> "VPN не запустился. Проверьте интернет, обновите подписку или смените сервер."
         }
     }
 

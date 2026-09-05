@@ -91,6 +91,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material.icons.outlined.Star
+import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -158,7 +161,7 @@ fun PulseApp(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     BackHandler(enabled = state.screen != Screen.HOME) {
-        viewModel.navigate(if (state.screen == Screen.APPS || state.screen == Screen.STATS) Screen.SETTINGS else Screen.HOME)
+        viewModel.navigate(if (state.screen in setOf(Screen.APPS, Screen.STATS, Screen.ADVANCED)) Screen.SETTINGS else Screen.HOME)
     }
     var showImport by remember { mutableStateOf(false) }
     LaunchedEffect(state.message, state.importing, state.testingServers) {
@@ -173,6 +176,7 @@ fun PulseApp(
         onImport = { showImport = false; viewModel.import(it) },
         scanQr = { showImport = false; scanQr() },
     )
+    androidx.compose.runtime.CompositionLocalProvider(LocalAdvancedOptions provides state.options) {
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         contentWindowInsets = WindowInsets(0),
@@ -187,11 +191,12 @@ fun PulseApp(
             AnimatedContent(targetState = state.screen, label = "screen") { screen ->
                 when (screen) {
                     Screen.HOME -> HomeScreen(state, requestConnect, viewModel::stopVpn, { viewModel.navigate(Screen.ROUTES) }, { viewModel.navigate(Screen.PROFILES) }, { showImport = true }, viewModel::selectServer, { state.selectedProfile?.let(viewModel::updateProfile) }, viewModel::testServers)
-                    Screen.ROUTES -> RoutesScreen(state, viewModel::selectServer, viewModel::testServers, viewModel::refreshSubscriptions, { showImport = true })
+                    Screen.ROUTES -> RoutesScreen(state, viewModel::selectServer, viewModel::testServers, viewModel::refreshSubscriptions, { showImport = true }, viewModel::toggleFavorite)
                     Screen.STATS -> StatsScreen(state)
                     Screen.SETTINGS -> SettingsScreen(state, viewModel, openVpnSettings)
                     Screen.PROFILES -> ProfilesScreen(state, { viewModel.navigate(Screen.HOME) }, { showImport = true }, viewModel::selectProfile, viewModel::updateProfile, viewModel::deleteProfile)
-                    Screen.APPS -> AppsScreen(state, { viewModel.navigate(Screen.SETTINGS) }, viewModel::setPerAppMode, viewModel::toggleApp)
+                    Screen.APPS -> AppsScreen(state, { viewModel.navigate(Screen.SETTINGS) }, viewModel::setPerAppMode, viewModel::toggleApp, viewModel::selectApps)
+                    Screen.ADVANCED -> AdvancedSettingsScreen(state, viewModel)
                 }
             }
             AnimatedVisibility(
@@ -204,6 +209,8 @@ fun PulseApp(
             }
         }
     }
+}
+
 }
 
 @Composable
@@ -283,7 +290,7 @@ private fun HomeScreen(
     testPings: () -> Unit,
 ) {
     val selected = state.servers.firstOrNull(VpnServer::selected) ?: state.servers.firstOrNull()
-    var subscriptionExpanded by rememberSaveable { mutableStateOf(true) }
+    var subscriptionExpanded by rememberSaveable(state.selectedProfile?.id, state.options.bool("compact_card")) { mutableStateOf(!state.options.bool("compact_card")) }
     PullToRefreshBox(
         isRefreshing = state.importing,
         onRefresh = { if (!state.importing && state.selectedProfile?.sourceUrl != null) refreshProfile() },
@@ -344,7 +351,7 @@ private fun HomeScreen(
                 Text(
                     when {
                         !configured -> "Добавьте ссылку или отсканируйте QR"
-                        status == Status.Started -> if (state.routingMode == "direct") "Трафик идёт напрямую" else "VPN активен · ${perAppLabel(state)}"
+                        status == Status.Started -> if (state.settingsPending) "VPN работает с предыдущими настройками" else if (state.routingMode == "direct") "Трафик идёт напрямую" else "VPN активен · ${perAppLabel(state)}"
                         status == Status.Starting -> "Настраиваем безопасный туннель"
                         else -> "Один импульс до приватности"
                     },
@@ -357,12 +364,26 @@ private fun HomeScreen(
             status = state.vpnStatus,
             configured = state.selectedProfile != null,
             animated = state.liveEffects,
+            haptics = state.options.bool("haptics"),
             onClick = when {
                 state.selectedProfile == null -> addProfile
                 state.vpnStatus == Status.Started || state.vpnStatus == Status.Starting -> disconnect
                 else -> connect
             },
         )
+        state.connectionError?.let { error ->
+            Surface(color = MaterialTheme.colorScheme.errorContainer, shape = RoundedCornerShape(18.dp)) {
+                Column(Modifier.fillMaxWidth().padding(14.dp)) {
+                    Text(error, color = MaterialTheme.colorScheme.onErrorContainer, fontSize = 13.sp)
+                    Row {
+                        TextButton(onClick = connect) { Text("Повторить") }
+                        TextButton(onClick = routes) { Text("Сменить сервер") }
+                    }
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+        }
+        if (state.settingsPending) Text("Настройки сохранены для следующего подключения", color = MaterialTheme.colorScheme.primary, fontSize = 12.sp, modifier = Modifier.padding(bottom = 8.dp))
         selected?.let { server ->
             Row(
                 Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp))
@@ -418,7 +439,7 @@ private fun HomeScreen(
                     Icon(Icons.Outlined.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurface.copy(alpha = .32f))
                 }
             }
-        } else if (subscriptionExpanded) {
+        } else if (subscriptionExpanded && state.options.bool("show_home_servers")) {
             Text("СЕРВЕРЫ", modifier = Modifier.fillMaxWidth().padding(start = 4.dp, bottom = 8.dp), color = MaterialTheme.colorScheme.onSurface.copy(.38f), fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
             state.servers.filterNot(VpnServer::isInfoMetadata).sortedByDescending { it.selected }.take(3).forEach { server ->
                 HomeServerRow(server, selectServer)
@@ -475,76 +496,48 @@ private fun SubscriptionHeaderCard(
         confirmButton = { TextButton(onClick = { showDescription = false }) { Text("Понятно") } },
     )
     Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(28.dp))
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp))
             .background(Brush.linearGradient(listOf(colors.primaryContainer.copy(.50f), colors.surface, colors.secondaryContainer.copy(.24f))))
-            .border(1.dp, colors.primary.copy(.22f), RoundedCornerShape(28.dp)).padding(18.dp),
+            .border(1.dp, colors.primary.copy(.22f), RoundedCornerShape(24.dp)).padding(14.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            PulseMark(42.dp)
-            Spacer(Modifier.width(12.dp))
+            PulseMark(32.dp)
+            Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f).clickable(onClick = openProfiles)) {
-                Text("ВАША ПОДПИСКА", color = colors.primary, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
-                Spacer(Modifier.height(4.dp))
-                Text(displayProfileName(profile), fontSize = 19.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text("ВАША ПОДПИСКА", color = colors.primary, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                Text(displayProfileName(profile), fontSize = 17.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
             IconButton(onClick = toggleExpanded) {
-                Icon(if (expanded) Icons.Outlined.KeyboardArrowUp else Icons.Outlined.KeyboardArrowDown, if (expanded) "Свернуть подписку" else "Развернуть подписку", tint = colors.onSurfaceVariant)
+                Icon(if (expanded) Icons.Outlined.KeyboardArrowUp else Icons.Outlined.KeyboardArrowDown, if (expanded) "Свернуть подписку" else "Развернуть подписку")
             }
         }
-        Spacer(Modifier.height(16.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            SettingsMetric("СРОК", when { daysLeft == null -> "Без даты"; daysLeft == 0L -> "Истёк"; else -> "$daysLeft дн." }, Modifier.weight(1f))
-            SettingsMetric("СЕРВЕРЫ", routeServers.size.toString(), Modifier.weight(1f))
-            SettingsMetric("ОСТАЛОСЬ", total?.let { formatBytes((it - used).coerceAtLeast(0)) } ?: "Без лимита", Modifier.weight(1f))
+        Spacer(Modifier.height(10.dp))
+        Text(
+            listOf(when { daysLeft == null -> "Срок не указан"; daysLeft == 0L -> "Срок истёк"; else -> "Ещё $daysLeft дн." },
+                "${routeServers.size} серверов", total?.let { "Осталось ${formatBytes((it - used).coerceAtLeast(0))}" } ?: "Без лимита").joinToString(" · "),
+            color = if (daysLeft == 0L || total != null && used >= total) colors.error else colors.onSurfaceVariant,
+            fontSize = 12.sp,
+        )
+        profile.providerDescription?.takeIf(String::isNotBlank)?.let { description ->
+            Text(description, Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable { showDescription = true }.padding(vertical = 8.dp),
+                color = colors.onSurface, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, lineHeight = 18.sp)
         }
-        if (total != null) {
-            Spacer(Modifier.height(12.dp))
-            androidx.compose.material3.LinearProgressIndicator(
-                progress = { (used.toFloat() / total).coerceIn(0f, 1f) },
-                modifier = Modifier.fillMaxWidth().height(4.dp).clip(CircleShape),
-                color = if (used >= total) colors.error else colors.primary,
-                trackColor = colors.onSurface.copy(.07f),
-            )
-            Spacer(Modifier.height(6.dp))
-            Text("Использовано ${formatBytes(used)} из ${formatBytes(total)}", color = colors.onSurfaceVariant, fontSize = 11.sp)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            ActionTile(Icons.Outlined.Refresh, "Обновить", Modifier.weight(1f), enabled = profile.sourceUrl != null && !refreshing, loading = refreshing, onClick = refresh)
+            ActionTile(Icons.Outlined.Speed, "Пинг", Modifier.weight(1f), enabled = routeServers.isNotEmpty() && !testingPings, loading = testingPings, onClick = testPings)
         }
         AnimatedVisibility(expanded) {
-            Column {
-                profile.providerDescription?.takeIf(String::isNotBlank)?.let { description ->
-                    Spacer(Modifier.height(16.dp))
-                    Column(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp))
-                            .background(colors.surface.copy(.6f)).clickable { showDescription = true }.padding(14.dp),
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Outlined.Info, null, Modifier.size(16.dp), tint = colors.secondary)
-                            Spacer(Modifier.width(7.dp))
-                            Text("ОТ ПРОВАЙДЕРА", color = colors.onSurfaceVariant, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-                            Spacer(Modifier.weight(1f))
-                            Icon(Icons.Outlined.ChevronRight, "Полное описание", Modifier.size(16.dp), tint = colors.onSurfaceVariant)
-                        }
-                        Spacer(Modifier.height(8.dp))
-                        Text(description, color = colors.onSurface, fontSize = 14.sp, lineHeight = 21.sp, maxLines = 4, overflow = TextOverflow.Ellipsis)
-                    }
+            Column(Modifier.padding(top = 8.dp)) {
+                if (support != null || profile.providerWebsite != null) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    if (support != null) TextButton(onClick = { openExternal(context, support) }) { Text("Поддержка") }
+                    if (profile.providerWebsite != null) TextButton(onClick = { openExternal(context, profile.providerWebsite) }) { Text("Кабинет") }
                 }
-                if (support != null || profile.providerWebsite != null) {
-                    Spacer(Modifier.height(10.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        support?.let { link -> ActionTile(Icons.Outlined.Send, "Поддержка", Modifier.weight(1f), onClick = { openExternal(context, link) }) }
-                        profile.providerWebsite?.let { link -> ActionTile(Icons.Outlined.Language, "Кабинет", Modifier.weight(1f), onClick = { openExternal(context, link) }) }
-                    }
+                if (total != null) {
+                    androidx.compose.material3.LinearProgressIndicator(progress = { (used.toFloat() / total).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth(), color = if (used >= total) colors.error else colors.primary)
+                    Text("Использовано ${formatBytes(used)} из ${formatBytes(total)}", color = colors.onSurfaceVariant, fontSize = 11.sp, modifier = Modifier.padding(top = 4.dp))
                 }
-                Spacer(Modifier.height(12.dp))
-                Text(
-                    "Обновлено ${DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(profile.updatedAt))}",
-                    color = colors.onSurfaceVariant, fontSize = 11.sp,
-                )
+                Text("Обновлено ${DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(profile.updatedAt))}", color = colors.onSurfaceVariant, fontSize = 11.sp, modifier = Modifier.padding(top = 5.dp))
             }
-        }
-        Spacer(Modifier.height(14.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ActionTile(Icons.Outlined.Refresh, "Обновить", Modifier.weight(1f), enabled = profile.sourceUrl != null && !refreshing, loading = refreshing, onClick = refresh)
-            ActionTile(Icons.Outlined.Speed, "Проверить", Modifier.weight(1f), enabled = routeServers.isNotEmpty() && !testingPings, loading = testingPings, onClick = testPings)
         }
     }
 }
@@ -570,7 +563,7 @@ private fun ActionTile(
         if (loading) CircularProgressIndicator(Modifier.size(18.dp), color = colors.primary, strokeWidth = 2.dp)
         else Icon(icon, null, Modifier.size(18.dp), tint = colors.primary.copy(if (enabled) 1f else .4f))
         Spacer(Modifier.width(7.dp))
-        Text(if (loading) "Проверяем…" else label, color = colors.onSurface.copy(if (enabled || loading) 1f else .4f), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(if (loading) (if (label.startsWith("Обнов")) "Обновляем…" else "Проверяем…") else label, modifier = Modifier.weight(1f, fill = false), color = colors.onSurface.copy(if (enabled || loading) 1f else .4f), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -601,7 +594,7 @@ private fun HomeServerRow(server: VpnServer, select: (VpnServer) -> Unit) {
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(server.tag, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(listOfNotNull(server.type.uppercase(), server.address).joinToString(" · "), color = MaterialTheme.colorScheme.onSurface.copy(.42f), fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(listOfNotNull(server.type.uppercase(), server.address.takeUnless { LocalAdvancedOptions.current.bool("hide_addresses") }).joinToString(" · "), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             server.delayMs?.let { Text("${it} мс", color = if (it < 250) PulseColors.Success else Color(0xFFFFB86B), fontSize = 11.sp) }
             Spacer(Modifier.width(8.dp))
@@ -645,7 +638,7 @@ private fun CompactMetric(icon: String, value: String, label: String) {
 }
 
 @Composable
-private fun PulseConnectButton(status: Status, configured: Boolean, animated: Boolean, onClick: () -> Unit) {
+private fun PulseConnectButton(status: Status, configured: Boolean, animated: Boolean, haptics: Boolean = true, onClick: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     val active = status == Status.Started
     val moving = status == Status.Starting || status == Status.Stopping
@@ -666,26 +659,29 @@ private fun PulseConnectButton(status: Status, configured: Boolean, animated: Bo
         configured -> "Подключить"
         else -> "Добавить подписку"
     }
-    Box(Modifier.fillMaxWidth().height(202.dp), contentAlignment = Alignment.Center) {
-        Canvas(Modifier.size(198.dp)) {
+    val compact = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp < 700 || androidx.compose.ui.platform.LocalDensity.current.fontScale > 1.3f
+    val buttonSize = if (compact) 124.dp else 150.dp
+    Box(Modifier.fillMaxWidth().height(if (compact) 160.dp else 202.dp), contentAlignment = Alignment.Center) {
+        Canvas(Modifier.size(if (compact) 156.dp else 198.dp)) {
             drawCircle(Brush.radialGradient(listOf(accent.copy(.18f + pulse * .07f), Color.Transparent)))
             drawCircle(accent.copy(.10f), radius = size.minDimension * .48f, style = Stroke(1.dp.toPx()))
             drawCircle(accent.copy(.25f + pulse * .12f), radius = size.minDimension * (.40f + pulse * .018f), style = Stroke(1.dp.toPx()))
         }
         Column(
-            Modifier.size(150.dp).graphicsLayer { scaleX = scale; scaleY = scale }
+            Modifier.size(buttonSize).graphicsLayer { scaleX = scale; scaleY = scale }
                 .clip(CircleShape)
                 .background(Brush.linearGradient(listOf(colors.primaryContainer, colors.surface)))
                 .border(1.5.dp, accent.copy(.7f), CircleShape)
                 .clickable(enabled = status != Status.Stopping, role = Role.Button, interactionSource = interaction, indication = null) {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress); onClick()
+                    if (haptics) haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onClick()
                 },
             horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
         ) {
             if (moving) CircularProgressIndicator(Modifier.size(36.dp), color = accent, strokeWidth = 2.dp)
             else Icon(if (configured) Icons.Outlined.PowerSettingsNew else Icons.Outlined.Add, null, Modifier.size(40.dp), tint = accent)
             Spacer(Modifier.height(14.dp))
-            Text(label, color = colors.onSurface, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            Text(label, modifier = Modifier.padding(horizontal = 12.dp), color = colors.onSurface, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, textAlign = androidx.compose.ui.text.style.TextAlign.Center, maxLines = 2)
         }
     }
 }
@@ -698,18 +694,26 @@ private fun RoutesScreen(
     test: () -> Unit,
     refresh: () -> Unit,
     add: () -> Unit,
+    toggleFavorite: (VpnServer) -> Unit,
 ) {
     var query by remember { mutableStateOf("") }
     var filter by rememberSaveable { mutableStateOf("all") }
     var details by remember { mutableStateOf<VpnServer?>(null) }
-    val filtered = remember(state.servers, query, filter) {
+    var protocol by rememberSaveable { mutableStateOf("all") }
+    val filtered = remember(state.servers, query, filter, protocol, state.favorites, state.options) {
         state.servers.filterNot(VpnServer::isInfoMetadata).filter { server ->
-            server.tag.contains(query, ignoreCase = true) && when (filter) {
+            server.tag.contains(query, ignoreCase = true) && (protocol == "all" || server.type == protocol) && when (filter) {
+                "favorites" -> server.tag in state.favorites
                 "available" -> server.delayMs != null
-                "slow" -> server.delayMs == null || server.delayMs >= 250
+                "slow" -> server.delayMs == null || server.delayMs >= state.options.number("slow_ms")
                 else -> true
             }
-        }
+        }.let { servers -> when (state.options.text("server_sort")) {
+            "name" -> servers.sortedBy { it.tag.lowercase() }
+            "ping" -> servers.sortedBy { it.delayMs ?: Int.MAX_VALUE }
+            "favorites" -> servers.sortedByDescending { it.tag in state.favorites }
+            else -> servers
+        } }
     }
     val allRoutes = remember(state.servers) { state.servers.filterNot(VpnServer::isInfoMetadata) }
     Column(
@@ -727,7 +731,7 @@ private fun RoutesScreen(
                     Icon(Icons.Outlined.Speed, "Проверить задержку", modifier = Modifier.size(18.dp))
                 }
                 Spacer(Modifier.width(5.dp))
-                Text(if (state.testingServers) "Проверяем…" else "Проверить все", fontSize = 12.sp)
+                Text(if (state.testingServers) "Проверяем…" else "Пинг", fontSize = 12.sp)
             }
             IconButton(onClick = add) { Icon(Icons.Outlined.Add, "Добавить") }
         })
@@ -744,7 +748,12 @@ private fun RoutesScreen(
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             RouteFilterChip("Все", filter == "all") { filter = "all" }
             RouteFilterChip("Доступные", filter == "available") { filter = "available" }
+            RouteFilterChip("Избранные", filter == "favorites") { filter = "favorites" }
             RouteFilterChip("Медленные / нет ответа", filter == "slow") { filter = "slow" }
+        }
+        if (allRoutes.map { it.type }.distinct().size > 1) Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            RouteFilterChip("Все протоколы", protocol == "all") { protocol = "all" }
+            allRoutes.map { it.type }.distinct().forEach { type -> RouteFilterChip(type.uppercase(), protocol == type) { protocol = type } }
         }
         if (allRoutes.isNotEmpty()) {
             Spacer(Modifier.height(12.dp))
@@ -777,10 +786,10 @@ private fun RoutesScreen(
                         EmptyCard(Icons.Outlined.Info, "В профиле нет серверов", "Обновите подписку или добавьте другую.", "Добавить другой", add)
                     }
                     filtered.isEmpty() -> item {
-                        EmptyCard(Icons.Outlined.Search, "Ничего не найдено", "Попробуйте изменить запрос или фильтр.", "Показать все", { query = ""; filter = "all" })
+                        EmptyCard(Icons.Outlined.Search, "Ничего не найдено", "Попробуйте изменить запрос или фильтр.", "Показать все", { query = ""; filter = "all"; protocol = "all" })
                     }
                     else -> items(filtered, key = VpnServer::tag) { server ->
-                        ServerRow(server, { select(server) }, { details = server })
+                        ServerRow(server, { select(server) }, { details = server }, server.tag in state.favorites, { toggleFavorite(server) })
                     }
                 }
             }
@@ -848,22 +857,22 @@ private fun PingOverview(
 }
 
 @Composable
-private fun ServerRow(server: VpnServer, onClick: () -> Unit, onInfo: () -> Unit) {
+private fun ServerRow(server: VpnServer, onClick: () -> Unit, onInfo: () -> Unit, favorite: Boolean, toggleFavorite: () -> Unit) {
     PremiumCard(onClick = onClick) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(
-                Modifier.size(46.dp).clip(RoundedCornerShape(15.dp)).background(
+                Modifier.size(48.dp).clip(RoundedCornerShape(15.dp)).clickable(onClick = toggleFavorite).background(
                     Brush.linearGradient(listOf(MaterialTheme.colorScheme.primary.copy(.28f), MaterialTheme.colorScheme.secondary.copy(.16f))),
                 ),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(Icons.Outlined.Language, null, tint = MaterialTheme.colorScheme.secondary)
+                Icon(if (favorite) Icons.Outlined.Star else Icons.Outlined.StarBorder, if (favorite) "В избранном: ${server.tag}" else "В избранное: ${server.tag}", tint = MaterialTheme.colorScheme.secondary)
             }
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
                 Text(server.tag, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(
-                    listOfNotNull(server.type.uppercase(), server.address).joinToString(" · "),
+                    listOfNotNull(server.type.uppercase(), server.address.takeUnless { LocalAdvancedOptions.current.bool("hide_addresses") }).joinToString(" · "),
                     color = MaterialTheme.colorScheme.onSurface.copy(.42f),
                     fontSize = 12.sp,
                     maxLines = 1,
@@ -893,14 +902,16 @@ private fun ServerDetailsDialog(server: VpnServer, history: List<Int>, close: ()
     AlertDialog(
         onDismissRequest = close,
         confirmButton = { TextButton(onClick = close) { Text("Готово") } },
-        title = { Text(server.tag, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        title = { Text(server.tag, modifier = Modifier.heightIn(max = 140.dp).verticalScroll(rememberScrollState())) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                DetailLine("Доступность", if (server.delayMs != null) "Доступен" else "Нет ответа")
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                DetailLine("Доступность", if (server.delayMs != null) "Ответ получен" else if (history.isEmpty()) "Не проверен" else "Нет ответа")
                 DetailLine("Задержка", server.delayMs?.let { "$it мс" } ?: "Не проверена")
                 DetailLine("Протокол", server.type.uppercase())
-                DetailLine("Адрес", server.address ?: "—")
-                DetailLine("Порт", server.port?.toString() ?: "—")
+                if (!LocalAdvancedOptions.current.bool("hide_addresses")) {
+                    DetailLine("Адрес", server.address ?: "—")
+                    DetailLine("Порт", server.port?.toString() ?: "—")
+                }
                 DetailLine("История", if (history.isEmpty()) "Пока нет замеров" else "${history.size} замеров")
                 DetailLine("Потери", loss?.let { "$it%" } ?: "—")
             }
@@ -912,7 +923,7 @@ private fun ServerDetailsDialog(server: VpnServer, history: List<Int>, close: ()
 private fun DetailLine(label: String, value: String) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
         Text(label, color = MaterialTheme.colorScheme.onSurface.copy(.52f), fontSize = 13.sp)
-        Text(value, color = MaterialTheme.colorScheme.onSurface, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(value, modifier = Modifier.weight(1f).padding(start = 12.dp), color = MaterialTheme.colorScheme.onSurface, fontSize = 13.sp, textAlign = androidx.compose.ui.text.style.TextAlign.End)
     }
 }
 
@@ -1011,6 +1022,9 @@ private fun SettingsScreen(state: PulseUiState, viewModel: PulseViewModel, openV
         Text("Ваш Pulse. Ваши правила.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp)
         Spacer(Modifier.height(20.dp))
         SettingsSnapshotCard(state, { viewModel.navigate(Screen.PROFILES) }, { viewModel.navigate(Screen.ROUTES) })
+        Spacer(Modifier.height(12.dp))
+        ActionTile(Icons.Outlined.Tune, "Все параметры · поиск и расширенные настройки", Modifier.fillMaxWidth(), onClick = { viewModel.navigate(Screen.ADVANCED) })
+        if (state.settingsPending) Button(onClick = { viewModel.reconnect() }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) { Text("Применить и переподключить") }
         SectionLabel("ОФОРМЛЕНИЕ")
         ThemeGallery(state, viewModel::setAccentTheme)
         Spacer(Modifier.height(12.dp))
@@ -1031,7 +1045,7 @@ private fun SettingsScreen(state: PulseUiState, viewModel: PulseViewModel, openV
         SettingsCard {
             ChoiceRow("Маршрутизация", state.routingMode, listOf("rules" to "По правилам", "global" to "Весь трафик", "direct" to "Напрямую"), viewModel::setRoutingMode)
             DividerInset()
-            ChoiceRow("DNS-сервер", state.dnsMode, listOf("local" to "Из профиля", "cloudflare" to "Cloudflare", "google" to "Google"), viewModel::setDnsMode)
+            ChoiceRow("DNS-сервер", state.dnsMode, listOf("local" to "Из профиля", "cloudflare" to "Cloudflare", "google" to "Google", "quad9" to "Quad9", "adguard" to "AdGuard DNS"), viewModel::setDnsMode)
             DividerInset()
             SettingAction(Icons.Outlined.Apps, "Приложения", perAppLabel(state), { viewModel.navigate(Screen.APPS) })
         }
@@ -1166,7 +1180,7 @@ private fun routingLabel(value: String): String = when (value) {
 }
 
 @Composable
-private fun AppsScreen(state: PulseUiState, back: () -> Unit, setMode: (Int) -> Unit, toggle: (String) -> Unit) {
+private fun AppsScreen(state: PulseUiState, back: () -> Unit, setMode: (Int) -> Unit, toggle: (String) -> Unit, bulkSelect: (String) -> Unit) {
     var search by rememberSaveable { mutableStateOf("") }
     val visibleApps = remember(state.apps, search) { state.apps.filter { it.label.contains(search, true) || it.packageName.contains(search, true) } }
     Column(Modifier.fillMaxSize().padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding())) {
@@ -1191,6 +1205,11 @@ private fun AppsScreen(state: PulseUiState, back: () -> Unit, setMode: (Int) -> 
             }
         }
         OutlinedTextField(search, { search = it }, modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 8.dp), singleLine = true, shape = RoundedCornerShape(18.dp), placeholder = { Text("Найти приложение") }, leadingIcon = { Icon(Icons.Outlined.Search, null) })
+        Row(Modifier.horizontalScroll(rememberScrollState())) {
+            TextButton(onClick = { bulkSelect("all") }, enabled = state.perAppMode != 0) { Text("Выбрать все") }
+            TextButton(onClick = { bulkSelect("none") }, enabled = state.perAppMode != 0) { Text("Снять выбор") }
+            TextButton(onClick = { bulkSelect("invert") }, enabled = state.perAppMode != 0) { Text("Инвертировать") }
+        }
         LazyColumn(contentPadding = PaddingValues(14.dp, 8.dp, 14.dp, 32.dp)) {
             if (visibleApps.isEmpty()) item { Text("Приложения не найдены", modifier = Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
             items(visibleApps, key = ProfileRepository.AppEntry::packageName) { app ->
@@ -1331,9 +1350,9 @@ private fun ScreenColumn(content: @Composable ColumnScope.() -> Unit) {
 
 @Composable
 private fun ScreenHeader(title: String, back: (() -> Unit)? = null, trailing: @Composable RowScope.() -> Unit = {}) {
-    Row(Modifier.fillMaxWidth().height(58.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().heightIn(min = 58.dp), verticalAlignment = Alignment.CenterVertically) {
         if (back != null) IconButton(onClick = back) { Icon(Icons.Outlined.ArrowBack, null) }
-        Text(title, style = MaterialTheme.typography.headlineLarge, modifier = Modifier.weight(1f))
+        Text(title, style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
         trailing()
     }
     Spacer(Modifier.height(12.dp))
@@ -1402,10 +1421,18 @@ private fun SettingAction(icon: androidx.compose.ui.graphics.vector.ImageVector,
 
 @Composable
 private fun ChoiceRow(title: String, selected: String, choices: List<Pair<String, String>>, change: (String) -> Unit) {
-    Column { Text(title, fontWeight = FontWeight.Medium); Spacer(Modifier.height(11.dp)); Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) { choices.forEach { (value, label) ->
-        val active = selected == value
-        Box(Modifier.weight(1f).heightIn(min = 48.dp).clip(RoundedCornerShape(14.dp)).background(if (active) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(.5f)).selectable(selected = active, role = Role.RadioButton, onClick = { change(value) }).padding(horizontal = 5.dp, vertical = 12.dp), contentAlignment = Alignment.Center) { Text(label, color = if (active) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, textAlign = androidx.compose.ui.text.style.TextAlign.Center) }
-    } } }
+    var open by remember { mutableStateOf(false) }
+    Column(Modifier.fillMaxWidth().clickable { open = true }.heightIn(min = 56.dp).padding(vertical = 6.dp)) {
+        Text(title, fontWeight = FontWeight.Medium)
+        Text(choices.firstOrNull { it.first == selected }?.second ?: selected, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 5.dp))
+    }
+    if (open) AlertDialog(onDismissRequest = { open = false }, title = { Text(title) },
+        text = { Column(Modifier.verticalScroll(rememberScrollState())) { choices.forEach { (value, label) ->
+            Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).selectable(selected == value, role = Role.RadioButton) { change(value); open = false }, verticalAlignment = Alignment.CenterVertically) {
+                androidx.compose.material3.RadioButton(selected == value, onClick = null)
+                Text(label, Modifier.weight(1f))
+            }
+        } } }, confirmButton = { TextButton(onClick = { open = false }) { Text("Закрыть") } })
 }
 
 @Composable private fun LinearLoading() { Spacer(Modifier.height(16.dp)); androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.secondary) }

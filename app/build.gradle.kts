@@ -13,17 +13,27 @@ android {
         applicationId = "app.pulse.vpn"
         minSdk = 26
         targetSdk = 36
-        versionCode = 45
-        versionName = "0.6.1-native"
+        versionCode = 46
+        versionName = "0.7.0-native"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
     }
 
+    signingConfigs {
+        create("persistentRelease") {
+            val keyPath = System.getenv("PULSE_KEYSTORE_PATH")
+            if (!keyPath.isNullOrBlank()) {
+                storeFile = file(keyPath)
+                storePassword = System.getenv("PULSE_KEYSTORE_PASSWORD")
+                keyPassword = System.getenv("PULSE_KEYSTORE_PASSWORD")
+                keyAlias = "pulse"
+            }
+        }
+    }
     buildTypes {
         release {
-            // Пока это alpha-сборка: делаем APK устанавливаемым без секретов в Git.
-            // Перед публикацией в Google Play заменить на собственный release-keystore.
-            signingConfig = signingConfigs.getByName("debug")
+            // Never fall back to a random debug key for release artifacts.
+            signingConfig = signingConfigs.getByName("persistentRelease")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
@@ -80,4 +90,12 @@ dependencies {
     androidTestImplementation(platform("androidx.compose:compose-bom:2025.08.01"))
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     androidTestImplementation("androidx.test:runner:1.6.2")
+}
+
+gradle.taskGraph.whenReady {
+    if (allTasks.any { it.project.path == ":app" && it.name in setOf("assembleRelease", "packageRelease", "bundleRelease") }) {
+        require(!System.getenv("PULSE_KEYSTORE_PATH").isNullOrBlank() && !System.getenv("PULSE_KEYSTORE_PASSWORD").isNullOrBlank()) {
+            "Release signing is required. Configure PULSE_KEYSTORE_PATH and PULSE_KEYSTORE_PASSWORD; debug signing is never used for release."
+        }
+    }
 }

@@ -4,6 +4,8 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.pulse.vpn.core.SettingsManager
+import app.pulse.vpn.core.AdvancedOptions
+import app.pulse.vpn.core.OptionCatalog
 import app.pulse.vpn.core.TrafficSnapshot
 import app.pulse.vpn.core.VpnController
 import app.pulse.vpn.data.ImportResult
@@ -33,7 +35,7 @@ import java.net.InetSocketAddress
 import java.net.InetAddress
 import java.net.Socket
 
-enum class Screen { HOME, ROUTES, STATS, SETTINGS, PROFILES, APPS }
+enum class Screen { HOME, ROUTES, STATS, SETTINGS, PROFILES, APPS, ADVANCED }
 
 data class PulseUiState(
     val screen: Screen = Screen.HOME,
@@ -48,6 +50,10 @@ data class PulseUiState(
     val pingCompleted: Int = 0,
     val pingTotal: Int = 0,
     val message: String? = null,
+    val connectionError: String? = null,
+    val settingsPending: Boolean = false,
+    val options: AdvancedOptions = SettingsManager.advanced,
+    val favorites: Set<String> = emptySet(),
     val darkTheme: Boolean = SettingsManager.darkTheme,
     val liveEffects: Boolean = SettingsManager.liveEffects,
     val accentTheme: String = SettingsManager.accentTheme,
@@ -67,6 +73,7 @@ data class PulseUiState(
 class PulseViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = ProfileRepository(application)
     private val vpn = VpnController(application)
+    private var connectionJob: kotlinx.coroutines.Job? = null
     private val _state = MutableStateFlow(PulseUiState())
     val state: StateFlow<PulseUiState> = _state.asStateFlow()
 
@@ -75,14 +82,26 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             reloadInternal()
             val selected = _state.value.selectedProfile
-            if (SettingsManager.refreshOnOpen && selected?.sourceUrl != null) updateProfile(selected).join()
+            if (SettingsManager.refreshOnOpen && selected?.sourceUrl != null &&
+                System.currentTimeMillis() - selected.updatedAt >= SettingsManager.advanced.number("refresh_hours") * 3_600_000L &&
+                refreshNetworkAllowed()) updateProfile(selected).join()
         }
         viewModelScope.launch { vpn.status.collect { value -> _state.update { it.copy(vpnStatus = value) } } }
         viewModelScope.launch { vpn.traffic.collect { value -> _state.update { it.copy(traffic = value) } } }
         viewModelScope.launch { vpn.delays.collect { values ->
             _state.update { current -> current.copy(servers = current.servers.map { it.copy(delayMs = values[it.tag] ?: it.delayMs) }) }
         } }
-        viewModelScope.launch { vpn.error.collect { it?.let(::showMessage) } }
+        viewModelScope.launch { vpn.error.collect { error ->
+            if (error != null) {
+                if (vpn.status.value == Status.Stopped) _state.update { it.copy(connectionError = error) }
+                else showMessage(error)
+            }
+        } }
+        viewModelScope.launch {
+            vpn.status.collect { status ->
+                if (status == Status.Started) _state.update { it.copy(connectionError = null, settingsPending = false) }
+            }
+        }
     }
 
     fun navigate(screen: Screen) {
@@ -120,6 +139,7 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
                 selectedProfile = selected,
                 servers = servers,
                 pingHistory = history,
+                favorites = selected?.let(repository::favorites).orEmpty(),
             )
         }
     }
@@ -130,6 +150,7 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
         _state.update { it.copy(importing = true, message = "Импортируем подписку…") }
         try { when (val result = repository.importProfile(input)) {
             is ImportResult.Success -> {
+                if (_state.value.vpnStatus != Status.Stopped) stopVpn()
                 val count = repository.servers(result.profile).size
                 reloadInternal()
                 _state.update {
@@ -146,6 +167,7 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
 
     fun updateProfile(profile: VpnProfile) = viewModelScope.launch {
         if (_state.value.importing) return@launch
+        if (!refreshNetworkAllowed()) return@launch showMessage("Обновление разрешено только по Wi-Fi")
         _state.update { it.copy(importing = true) }
         try {
             when (val result = repository.update(profile)) {
@@ -158,7 +180,7 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun selectProfile(profile: VpnProfile) = viewModelScope.launch {
-        if (_state.value.vpnStatus != Status.Stopped) vpn.stop()
+        if (_state.value.vpnStatus != Status.Stopped) stopVpn()
         repository.select(profile)
         repository.applyRoutingSettings(profile)
         val servers = repository.servers(profile)
@@ -167,13 +189,15 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
                 selectedProfile = profile,
                 servers = servers,
                 pingHistory = repository.pingHistory(profile),
+                favorites = repository.favorites(profile),
+                connectionError = null,
                 screen = Screen.HOME,
             )
         }
     }
 
     fun deleteProfile(profile: VpnProfile) = viewModelScope.launch {
-        if (_state.value.selectedProfile?.id == profile.id) vpn.stop()
+        if (_state.value.selectedProfile?.id == profile.id) stopVpn()
         repository.delete(profile)
         reload()
     }
@@ -202,7 +226,8 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
                 }?.let { values -> snapshot.map { it.copy(delayMs = values[it.tag]) } }
                     ?: run { showMessage("Проверка завершена без новых результатов. Попробуйте ещё раз."); return@launch }
             } else {
-                val limit = Semaphore(6)
+                val options = _state.value.options
+                val limit = Semaphore(options.number("ping_parallel"))
                 coroutineScope {
                     snapshot.map { server ->
                         async(Dispatchers.IO) {
@@ -214,13 +239,13 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
                                             async(Dispatchers.IO) {
                                                 runCatching {
                                                     val started = System.nanoTime()
-                                                    Socket().use { it.connect(InetSocketAddress(address, server.port), 1200) }
+                                                    Socket().use { it.connect(InetSocketAddress(address, server.port), options.number("ping_timeout")) }
                                                     ((System.nanoTime() - started) / 1_000_000).toInt()
                                                 }.getOrNull()
                                             }
                                         }.awaitAll().filterNotNull().minOrNull()
                                     }
-                                    probe() ?: run { delay(120); probe() }
+                                    probe() ?: if (options.bool("ping_retry")) run { delay(120); probe() } else null
                                 } else null
                                 _state.update { it.copy(pingCompleted = (it.pingCompleted + 1).coerceAtMost(it.pingTotal)) }
                                 server.copy(delayMs = latency)
@@ -240,7 +265,7 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
             }
             val history = _state.value.pingHistory.toMutableMap()
             sorted.forEach { server -> history[server.tag] = (history[server.tag].orEmpty() + (server.delayMs ?: -1)).takeLast(20) }
-            withContext(Dispatchers.IO) { repository.savePingHistory(owner, history) }
+            if (_state.value.options.bool("save_history")) withContext(Dispatchers.IO) { repository.savePingHistory(owner, history) }
             _state.update { current ->
                 if (current.selectedProfile?.id != owner.id) current else current.copy(
                     servers = sorted.map { it.copy(selected = it.tag == (if (autoSelect) fastest?.tag else current.servers.firstOrNull(VpnServer::selected)?.tag)) },
@@ -259,11 +284,28 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun startVpn() {
+        if (connectionJob?.isActive == true) return
         if (_state.value.selectedProfile == null) return showMessage("Сначала добавьте подписку")
-        vpn.start()
+        if (_state.value.servers.isEmpty()) return connectionFailed("В подписке нет VPN-серверов. Обновите её или выберите другой профиль.")
+        if (_state.value.perAppMode == SettingsManager.Keys.PER_APP_PROXY_INCLUDE && _state.value.selectedApps.isEmpty())
+            return connectionFailed("Не выбраны приложения. Откройте настройки приложений или включите режим «Все».")
+        if (_state.value.vpnStatus != Status.Stopped) return
+        _state.update { it.copy(connectionError = null) }
+        connectionJob = viewModelScope.launch {
+            try {
+                _state.value.selectedProfile?.let { repository.applyRoutingSettings(it) }
+                vpn.start()
+                val started = withTimeoutOrNull(_state.value.options.number("connect_timeout") * 1000L) {
+                    kotlinx.coroutines.flow.combine(vpn.status, vpn.error) { status, error -> status to error }
+                        .first { (status, error) -> status == Status.Started || error != null }
+                }
+                if (started == null) { vpn.stop(); connectionFailed("Подключение заняло слишком долго. Проверьте интернет или смените сервер.") }
+            } catch (cancelled: CancellationException) { throw cancelled
+            } catch (_: Exception) { connectionFailed("Не удалось запустить VPN. Обновите подписку и попробуйте другой сервер.") }
+        }
     }
 
-    fun stopVpn() = vpn.stop()
+    fun stopVpn() { connectionJob?.cancel(); connectionJob = null; vpn.stop(); _state.update { it.copy(connectionError = null) } }
 
     fun setDarkTheme(value: Boolean) {
         SettingsManager.darkTheme = value
@@ -297,6 +339,7 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
 
     fun refreshSubscriptions() = viewModelScope.launch {
         if (_state.value.importing) return@launch
+        if (!refreshNetworkAllowed()) return@launch showMessage("Обновление разрешено только по Wi-Fi")
         val remote = _state.value.profiles.filter { it.sourceUrl != null }
         if (remote.isEmpty()) return@launch showMessage("Нет удалённых подписок для обновления")
         _state.update { it.copy(importing = true) }
@@ -317,16 +360,12 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setRoutingMode(value: String) = viewModelScope.launch {
         SettingsManager.routingMode = value
-        _state.value.selectedProfile?.let { repository.applyRoutingSettings(it) }
-        if (_state.value.vpnStatus == Status.Started) { vpn.stop(); showMessage("Переподключитесь, чтобы применить маршрутизацию") }
-        _state.update { it.copy(routingMode = value) }
+        _state.update { it.copy(routingMode = value, settingsPending = it.vpnStatus != Status.Stopped) }
     }
 
     fun setDnsMode(value: String) = viewModelScope.launch {
         SettingsManager.dnsMode = value
-        _state.value.selectedProfile?.let { repository.applyRoutingSettings(it) }
-        if (_state.value.vpnStatus == Status.Started) vpn.stop()
-        _state.update { it.copy(dnsMode = value) }
+        _state.update { it.copy(dnsMode = value, settingsPending = it.vpnStatus != Status.Stopped) }
         showMessage("DNS сохранён. Переподключитесь для применения")
     }
 
@@ -336,14 +375,63 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
             SettingsManager.Keys.PER_APP_PROXY_INCLUDE -> SettingsManager.perAppProxyIncludeList
             else -> SettingsManager.perAppProxyExcludeList
         }.toSet()
-        _state.update { it.copy(perAppMode = value, selectedApps = saved) }
+        _state.update { it.copy(perAppMode = value, selectedApps = saved, settingsPending = it.vpnStatus != Status.Stopped) }
     }
 
     fun toggleApp(packageName: String) {
         if (_state.value.perAppMode == SettingsManager.Keys.PER_APP_PROXY_DISABLED) return
         val selected = _state.value.selectedApps.toMutableSet().apply { if (!add(packageName)) remove(packageName) }
         SettingsManager.setPerAppList(_state.value.perAppMode, selected)
-        _state.update { it.copy(selectedApps = selected) }
+        _state.update { it.copy(selectedApps = selected, settingsPending = it.vpnStatus != Status.Stopped) }
+    }
+
+    fun connectionFailed(message: String) = _state.update { it.copy(connectionError = message) }
+    fun dismissConnectionError() = _state.update { it.copy(connectionError = null) }
+
+    fun setOption(key: String, value: String) = viewModelScope.launch {
+        val updated = _state.value.options.with(key, value)
+        SettingsManager.advanced = updated
+        _state.update { it.copy(options = updated, settingsPending = it.settingsPending || (OptionCatalog.byKey[key]?.reconnect == true && it.vpnStatus != Status.Stopped)) }
+        if (key == "save_history" && value == "false") _state.value.profiles.forEach { repository.savePingHistory(it, emptyMap()) }
+    }
+
+    fun resetAdvanced() {
+        SettingsManager.advanced = AdvancedOptions()
+        _state.update { it.copy(options = AdvancedOptions(), settingsPending = it.vpnStatus != Status.Stopped) }
+    }
+
+    fun clearPingHistory() {
+        _state.value.selectedProfile?.let { repository.savePingHistory(it, emptyMap()) }
+        _state.update { it.copy(pingHistory = emptyMap(), servers = it.servers.map { server -> server.copy(delayMs = null) }) }
+    }
+
+    fun toggleFavorite(server: VpnServer) {
+        val profile = _state.value.selectedProfile ?: return
+        val favorites = _state.value.favorites.toMutableSet().apply { if (!add(server.tag)) remove(server.tag) }
+        repository.saveFavorites(profile, favorites)
+        _state.update { it.copy(favorites = favorites) }
+    }
+
+    fun selectApps(action: String) {
+        if (_state.value.perAppMode == SettingsManager.Keys.PER_APP_PROXY_DISABLED) return
+        val all = _state.value.apps.map { it.packageName }.toSet()
+        val selected = when (action) { "all" -> all; "invert" -> all - _state.value.selectedApps; else -> emptySet() }
+        SettingsManager.setPerAppList(_state.value.perAppMode, selected)
+        _state.update { it.copy(selectedApps = selected, settingsPending = it.vpnStatus != Status.Stopped) }
+    }
+
+    fun reconnect() = viewModelScope.launch {
+        stopVpn()
+        if (withTimeoutOrNull(10_000) { vpn.status.first { it == Status.Stopped } } != null) startVpn()
+        else connectionFailed("VPN ещё завершается. Повторите подключение через несколько секунд.")
+    }
+
+    private fun refreshNetworkAllowed(): Boolean {
+        if (!_state.value.options.bool("wifi_refresh")) return true
+        val manager = getApplication<Application>().getSystemService(android.net.ConnectivityManager::class.java)
+        return manager.allNetworks.any { network ->
+            manager.getNetworkCapabilities(network)?.let { it.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) && it.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) } == true
+        }
     }
 
     fun clearMessage() = _state.update { it.copy(message = null) }

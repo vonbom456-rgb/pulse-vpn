@@ -20,6 +20,7 @@ class MainActivity : ComponentActivity() {
     private val viewModel by viewModels<PulseViewModel>()
     private val vpnPermission = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         if (it.resultCode == RESULT_OK) viewModel.startVpn()
+        else viewModel.connectionFailed("Разрешение VPN не выдано. Нажмите «Повторить» и подтвердите запрос Android.")
     }
     private val scanner = registerForActivityResult(ScanContract()) { result ->
         result.contents?.takeIf(String::isNotBlank)?.let(viewModel::import)
@@ -30,6 +31,12 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             val state by viewModel.state.collectAsStateWithLifecycle()
+            LaunchedEffect(state.options, state.vpnStatus) {
+                val secure = android.view.WindowManager.LayoutParams.FLAG_SECURE
+                val awake = android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+                if (state.options.bool("secure_screen")) window.addFlags(secure) else window.clearFlags(secure)
+                if (state.options.bool("keep_screen") && state.vpnStatus == io.nekohasekai.sfa.constant.Status.Started) window.addFlags(awake) else window.clearFlags(awake)
+            }
             LaunchedEffect(state.darkTheme) {
                 val bars = if (state.darkTheme) {
                     SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)

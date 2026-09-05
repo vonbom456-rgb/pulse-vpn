@@ -23,8 +23,14 @@ class PulseUiSmokeTest {
         val imported = SubscriptionImporter().import("vless://11111111-1111-4111-8111-111111111111@example.invalid:443?security=tls#Test")
         val source = Json.parseToJsonElement(imported.config).jsonObject
         listOf("rules", "global", "direct").forEach { mode ->
-            listOf("local", "cloudflare", "google").forEach { dns ->
+            listOf("local", "cloudflare", "google", "quad9", "adguard").forEach { dns ->
                 Libbox.checkConfig(RuntimeSettings.apply(source, "Test", mode, dns).toString())
+            }
+        }
+        app.pulse.vpn.core.OptionCatalog.all.filter { it.reconnect }.forEach { spec ->
+            (if (spec.toggle) listOf("true", "false") else spec.choices.map { it.first }).forEach { value ->
+                val options = app.pulse.vpn.core.AdvancedOptions().with(spec.key, value)
+                Libbox.checkConfig(RuntimeSettings.apply(source, "Test", "rules", "cloudflare", options).toString())
             }
         }
     }
@@ -46,7 +52,7 @@ class PulseUiSmokeTest {
         compose.runOnIdle { ViewModelProvider(compose.activity)[PulseViewModel::class.java].setLiveEffects(false) }
         compose.onNodeWithText("Добавить подписку").performClick()
         compose.onNode(hasSetTextAction()).performTextInput("""
-            #profile-title: Pulse Demo
+            #profile-title: Pulse Demo — very long subscription name for accessibility and compact layout review
             #announce: Welcome to Pulse. Your subscription details stay here.
             #support-url: https://t.me/pulse_demo
             #profile-web-page-url: https://example.invalid
@@ -75,5 +81,37 @@ class PulseUiSmokeTest {
         compose.onNodeWithText("Маршруты").performClick()
         compose.onNodeWithText("Finland").assertIsDisplayed()
         snapshot("07-routes")
+        compose.onNodeWithContentDescription("В избранное: Finland").performClick()
+        compose.onNodeWithText("Избранные").performClick()
+        compose.onNodeWithContentDescription("В избранном: Finland").assertIsDisplayed()
+        compose.onNodeWithText("Настройки").performClick()
+        compose.onNodeWithText("Все параметры · поиск и расширенные настройки").performScrollTo().performClick()
+        compose.onNodeWithText("Поиск настроек").performTextInput("MTU")
+        compose.onNodeWithText("Размер пакета MTU").performClick()
+        compose.onNodeWithText("1400").performClick()
+        compose.onNodeWithText("1400").assertIsDisplayed()
+        snapshot("08-advanced-search")
+        compose.onNodeWithContentDescription("Очистить поиск").performClick()
+        compose.runOnIdle { ViewModelProvider(compose.activity)[PulseViewModel::class.java].connectionFailed("Тестовое сообщение: проверьте интернет или смените сервер.") }
+        compose.runOnIdle { ViewModelProvider(compose.activity)[PulseViewModel::class.java].navigate(Screen.HOME) }
+        compose.onNodeWithText("Повторить").performScrollTo().assertIsDisplayed()
+        snapshot("09-recovery")
+        val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+        fun shell(command: String) { automation.executeShellCommand(command).use { android.os.ParcelFileDescriptor.AutoCloseInputStream(it).readBytes() } }
+        try {
+            shell("wm size 720x1280")
+            shell("wm density 320")
+            shell("settings put system font_scale 1.5")
+            compose.activityRule.scenario.recreate()
+            compose.waitForIdle()
+            snapshot("10-small-large-font-home")
+            compose.runOnIdle { ViewModelProvider(compose.activity)[PulseViewModel::class.java].navigate(Screen.ADVANCED) }
+            compose.onNodeWithText("Поиск настроек").assertIsDisplayed()
+            snapshot("11-small-large-font-settings")
+        } finally {
+            shell("settings put system font_scale 1.0")
+            shell("wm size reset")
+            shell("wm density reset")
+        }
     }
 }

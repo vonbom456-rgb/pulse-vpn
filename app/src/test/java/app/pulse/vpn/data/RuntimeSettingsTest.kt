@@ -12,7 +12,9 @@ class RuntimeSettingsTest {
         assertEquals("B", runtime["outbounds"]!!.jsonArray.first().jsonObject["default"]!!.jsonPrimitive.content)
         assertEquals("Proxy", runtime["route"]!!.jsonObject["final"]!!.jsonPrimitive.content)
         assertEquals("A", base["outbounds"]!!.jsonArray.first().jsonObject["default"]!!.jsonPrimitive.content)
-        assertEquals(base["dns"], runtime["dns"])
+        assertEquals(base["dns"]!!.jsonObject["servers"], runtime["dns"]!!.jsonObject["servers"])
+        assertEquals(false, runtime["dns"]!!.jsonObject["disable_cache"]!!.jsonPrimitive.boolean)
+        assertEquals(true, runtime["dns"]!!.jsonObject["independent_cache"]!!.jsonPrimitive.boolean)
         assertEquals(base["route"]!!.jsonObject["rules"]!!.jsonArray, runtime["route"]!!.jsonObject["rules"]!!.jsonArray.drop(1))
     }
 
@@ -27,7 +29,7 @@ class RuntimeSettingsTest {
     }
 
     @Test fun secureDnsUsesIpAndSeparatePathWithoutBootstrapLoop() {
-        listOf("google" to "8.8.8.8", "cloudflare" to "1.1.1.1").forEach { (mode, ip) ->
+        listOf("google" to "8.8.8.8", "cloudflare" to "1.1.1.1", "quad9" to "9.9.9.9", "adguard" to "94.140.14.14").forEach { (mode, ip) ->
             val runtime = RuntimeSettings.apply(base, "B", "rules", mode)
             val dns = runtime["dns"]!!.jsonObject
             val server = dns["servers"]!!.jsonArray.last().jsonObject

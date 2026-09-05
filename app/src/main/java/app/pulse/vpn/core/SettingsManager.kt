@@ -9,7 +9,10 @@ object SettingsManager {
     const val MMKV_ID = "pulse_settings"
     private val storage by lazy { MMKV.mmkvWithID(MMKV_ID, MMKV.MULTI_PROCESS_MODE) }
 
-    val dynamicNotification get() = storage.decodeBool(Keys.DYNAMIC_NOTIFICATION, true)
+    var advanced: AdvancedOptions
+        get() = runCatching { kotlinx.serialization.json.Json.decodeFromString<AdvancedOptions>(storage.decodeString("advanced_options", "{}") ?: "{}") }.getOrDefault(AdvancedOptions())
+        set(value) { storage.encode("advanced_options", kotlinx.serialization.json.Json.encodeToString(AdvancedOptions.serializer(), value)); storage.sync() }
+    val dynamicNotification get() = advanced.bool("notification_speed")
     val disableMemoryLimit get() = storage.decodeBool(Keys.DISABLE_MEMORY_LIMIT, false)
     var startedByUser: Boolean
         get() = storage.decodeBool(Keys.STARTED_BY_USER, false)

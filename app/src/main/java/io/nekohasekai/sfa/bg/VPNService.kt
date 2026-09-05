@@ -73,7 +73,7 @@ class VPNService :
                 .setMtu(options.mtu)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            builder.setMetered(false)
+            builder.setMetered(SettingsManager.advanced.bool("metered"))
         }
 
 //        if (Settings.allowBypass) {
@@ -150,6 +150,9 @@ class VPNService :
                         } catch (_: NameNotFoundException) {
                         }
                     }
+                    builder.addAllowedApplication(PluginManager.appContext.packageName)
+                } else {
+                    // An empty allow-list must not silently send every app through VPN.
                     builder.addAllowedApplication(PluginManager.appContext.packageName)
                 }
             } else if (SettingsManager.perAppProxyMode == SettingsManager.Keys.PER_APP_PROXY_EXCLUDE) {
