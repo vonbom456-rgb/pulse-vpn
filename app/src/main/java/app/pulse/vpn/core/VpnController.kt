@@ -12,6 +12,7 @@ import io.nekohasekai.sfa.utils.CommandClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -89,5 +90,6 @@ class VpnController(context: Context) : ServiceConnection.Callback, CommandClien
     fun close() {
         commandClient.disconnect()
         connection.disconnect()
+        scope.cancel()
     }
 }

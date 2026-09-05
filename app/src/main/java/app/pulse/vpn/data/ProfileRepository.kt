@@ -47,6 +47,7 @@ class ProfileRepository(
                 providerDescription = imported.providerDescription,
                 providerTelegram = imported.providerTelegram,
                 providerWebsite = imported.providerWebsite,
+                providerSupportUrl = imported.providerSupportUrl,
             )
             // Keep the provider response untouched as the source. Runtime settings are
             // applied to using_config.json and can therefore be changed without losing
@@ -73,6 +74,7 @@ class ProfileRepository(
                     providerDescription = imported.providerDescription,
                     providerTelegram = imported.providerTelegram,
                     providerWebsite = imported.providerWebsite,
+                    providerSupportUrl = imported.providerSupportUrl,
                 )
                 File(directory, SOURCE_CONFIG).writeText(imported.config)
                 File(directory, "profile.json").writeText(json.encodeToString(updated))
@@ -160,7 +162,10 @@ class ProfileRepository(
                 val rootObject = json.parseToJsonElement(file.readText()).jsonObject.toMutableMap()
                 rootObject["outbounds"] = JsonArray(rootObject["outbounds"]?.jsonArray.orEmpty().map { element ->
                     val item = (element as? JsonObject)?.toMutableMap() ?: return@map element
-                    if (item["type"]?.jsonPrimitive?.contentOrNull == "selector") item["default"] = JsonPrimitive(preferred)
+                    val refs = (item["outbounds"] as? JsonArray).orEmpty()
+                    if (item["type"]?.jsonPrimitive?.contentOrNull == "selector" && refs.any { (it as? JsonPrimitive)?.contentOrNull == preferred }) {
+                        item["default"] = JsonPrimitive(preferred)
+                    }
                     JsonObject(item)
                 })
                 file.writeText(json.encodeToString(JsonObject.serializer(), JsonObject(rootObject)))
@@ -225,7 +230,7 @@ class ProfileRepository(
         }.toMutableList()
         if (routeTags.isNotEmpty() && outbounds.none {
                 val item = it as? JsonObject ?: return@none false
-                item.value("type") == "selector" && item.value("tag").equals("Proxy", ignoreCase = true)
+                item.value("type") == "selector" && item.value("tag") == "Proxy"
             }) {
             outbounds.add(0, JsonObject(mapOf(
                 "type" to JsonPrimitive("selector"),
@@ -234,44 +239,13 @@ class ProfileRepository(
                 "default" to JsonPrimitive(routeTags.first()),
             )))
         }
-        val validRouteTargets = outbounds.mapNotNull { element ->
-            val item = element as? JsonObject ?: return@mapNotNull null
-            item.takeIf { it.value("type") != "dns" && !it.isProviderInfo() && !it.isProviderError() }
-                ?.value("tag")?.takeIf(String::isNotBlank)
-        }.toSet()
         val selectedSetting = preferences.getString(selectedServerKey(profile), null)
-        val selected = selectedSetting?.takeIf { it in routeTags }
-            ?: routeTags.firstOrNull()
+        val selected = selectedSetting?.takeIf { it in routeTags } ?: routeTags.firstOrNull()
         if (selected != null && selected != selectedSetting) preferences.edit().putString(selectedServerKey(profile), selected).apply()
-        val values = base.toMutableMap()
-        values["outbounds"] = JsonArray(outbounds)
-        val route = ((base["route"] as? JsonObject)?.toMutableMap() ?: mutableMapOf())
-        val safeFallback = when {
-            "Proxy" in validRouteTargets -> "Proxy"
-            selected != null && selected in validRouteTargets -> selected
-            "direct" in validRouteTargets -> "direct"
-            else -> validRouteTargets.firstOrNull()
-        }
-        val baseFinal = (route["final"] as? JsonPrimitive)?.contentOrNull
-        when (SettingsManager.routingMode) {
-            "global" -> route["final"] = JsonPrimitive(selected ?: safeFallback ?: "direct")
-            "direct" -> route["final"] = JsonPrimitive("direct")
-            else -> route["final"] = JsonPrimitive(baseFinal?.takeIf { it in validRouteTargets } ?: safeFallback ?: "direct")
-        }
-        route["auto_detect_interface"] = JsonPrimitive(true)
-        values["route"] = JsonObject(route)
-        if (SettingsManager.dnsMode != "local") {
-            val endpoint = if (SettingsManager.dnsMode == "google") "https://dns.google/dns-query" else "https://1.1.1.1/dns-query"
-            values["dns"] = JsonObject(mapOf(
-                "servers" to JsonArray(listOf(JsonObject(mapOf(
-                    "type" to JsonPrimitive("https"),
-                    "tag" to JsonPrimitive("secure-dns"),
-                    "server" to JsonPrimitive(endpoint),
-                )))),
-            ))
-        }
+        val sanitized = JsonObject(base + ("outbounds" to JsonArray(outbounds)))
+        val effective = RuntimeSettings.apply(sanitized, selected, SettingsManager.routingMode, SettingsManager.dnsMode)
         val file = runtimeConfigFile(profile)
-        file.writeText(json.encodeToString(JsonObject.serializer(), JsonObject(values)))
+        file.writeText(json.encodeToString(JsonObject.serializer(), effective))
         if (selectedId() == profile.id) ProfileManager.select(profile.name, file)
     }
 

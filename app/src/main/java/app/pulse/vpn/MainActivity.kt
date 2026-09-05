@@ -9,6 +9,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.pulse.vpn.ui.PulseApp
 import app.pulse.vpn.ui.PulseTheme
 import com.journeyapps.barcodescanner.ScanContract
@@ -27,7 +28,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            val state by viewModel.state.collectAsState()
+            val state by viewModel.state.collectAsStateWithLifecycle()
             val activeAccent = if (state.accentTheme == "profile") {
                 state.selectedProfile?.themeHint ?: "pulse"
             } else state.accentTheme

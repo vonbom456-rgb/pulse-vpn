@@ -16,6 +16,14 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.ui.semantics.Role
+import androidx.activity.compose.BackHandler
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -148,7 +156,10 @@ fun PulseApp(
     scanQr: () -> Unit,
     openVpnSettings: () -> Unit,
 ) {
-    val state by viewModel.state.collectAsState()
+    val state by viewModel.state.collectAsStateWithLifecycle()
+    BackHandler(enabled = state.screen != Screen.HOME) {
+        viewModel.navigate(if (state.screen == Screen.APPS || state.screen == Screen.STATS) Screen.SETTINGS else Screen.HOME)
+    }
     var showImport by remember { mutableStateOf(false) }
     LaunchedEffect(state.message, state.importing, state.testingServers) {
         if (state.message != null && !state.importing && !state.testingServers) {
@@ -227,47 +238,37 @@ private fun PulseBackdrop(modifier: Modifier = Modifier, animated: Boolean = tru
 
 @Composable
 private fun PulseNavigation(current: Screen, navigate: (Screen) -> Unit) {
-    Box(
-        Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background)
-            .navigationBarsPadding().padding(horizontal = 20.dp, vertical = 10.dp),
-        contentAlignment = Alignment.Center,
+    Row(
+        Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 20.dp, vertical = 8.dp)
+            .clip(RoundedCornerShape(26.dp)).background(MaterialTheme.colorScheme.surface)
+            .border(1.dp, MaterialTheme.colorScheme.outline.copy(.16f), RoundedCornerShape(26.dp))
+            .padding(6.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Row(
-            Modifier.fillMaxWidth().height(68.dp).clip(CircleShape)
-                .background(MaterialTheme.colorScheme.surface.copy(alpha = .96f))
-                .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = .07f), CircleShape)
-                .padding(horizontal = 10.dp),
-            horizontalArrangement = Arrangement.SpaceEvenly,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            listOf(
-                Triple(Screen.HOME, Icons.Outlined.Home, "Главная"),
-                Triple(Screen.ROUTES, Icons.Outlined.Route, "Маршруты"),
-                Triple(Screen.SETTINGS, Icons.Outlined.Tune, "Настройки"),
-            ).forEach { (screen, icon, label) ->
-                val selected = current == screen
-                Box(
-                    Modifier.size(48.dp).clip(CircleShape)
-                        .background(
-                            if (selected) MaterialTheme.colorScheme.primary.copy(alpha = .18f)
-                            else Color.Transparent,
-                        )
-                        .clickable { navigate(screen) },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        icon,
-                        label,
-                        tint = if (selected) MaterialTheme.colorScheme.secondary
-                        else MaterialTheme.colorScheme.onSurface.copy(alpha = .42f),
-                    )
-                }
+        listOf(
+            Triple(Screen.HOME, Icons.Outlined.Home, "Главная"),
+            Triple(Screen.ROUTES, Icons.Outlined.Route, "Маршруты"),
+            Triple(Screen.SETTINGS, Icons.Outlined.Tune, "Настройки"),
+        ).forEach { (screen, icon, label) ->
+            val selected = current == screen
+            val color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+            Column(
+                Modifier.weight(1f).clip(RoundedCornerShape(20.dp))
+                    .background(if (selected) MaterialTheme.colorScheme.primary.copy(.12f) else Color.Transparent)
+                    .selectable(selected = selected, role = Role.Tab, onClick = { navigate(screen) })
+                    .padding(vertical = 10.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Icon(icon, null, tint = color, modifier = Modifier.size(22.dp))
+                Text(label, color = color, fontSize = 11.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium)
             }
         }
     }
 }
 
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 private fun HomeScreen(
     state: PulseUiState,
     connect: () -> Unit,
@@ -281,6 +282,11 @@ private fun HomeScreen(
 ) {
     val selected = state.servers.firstOrNull(VpnServer::selected) ?: state.servers.firstOrNull()
     var subscriptionExpanded by rememberSaveable { mutableStateOf(true) }
+    PullToRefreshBox(
+        isRefreshing = state.importing,
+        onRefresh = { if (!state.importing && state.selectedProfile?.sourceUrl != null) refreshProfile() },
+        modifier = Modifier.fillMaxSize(),
+    ) {
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(
             top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 14.dp,
@@ -316,7 +322,7 @@ private fun HomeScreen(
             }
         }
 
-        Spacer(Modifier.height(38.dp))
+        Spacer(Modifier.height(24.dp))
         AnimatedContent(
             targetState = state.vpnStatus to (state.selectedProfile != null),
             label = "connection-title",
@@ -325,7 +331,7 @@ private fun HomeScreen(
                 Text(
                     when {
                         !configured -> "Нужен профиль"
-                        status == Status.Started -> "Защищено"
+                        status == Status.Started -> "Подключено"
                         status == Status.Starting -> "Подключаем"
                         status == Status.Stopping -> "Завершаем"
                         else -> "Не подключено"
@@ -336,7 +342,7 @@ private fun HomeScreen(
                 Text(
                     when {
                         !configured -> "Добавьте ссылку или отсканируйте QR"
-                        status == Status.Started -> "Сигнал стабилен · трафик защищён"
+                        status == Status.Started -> if (state.routingMode == "direct") "Трафик идёт напрямую" else "VPN активен · ${perAppLabel(state)}"
                         status == Status.Starting -> "Настраиваем безопасный туннель"
                         else -> "Один импульс до приватности"
                     },
@@ -396,17 +402,18 @@ private fun HomeScreen(
             }
         } else if (subscriptionExpanded) {
             Text("СЕРВЕРЫ", modifier = Modifier.fillMaxWidth().padding(start = 4.dp, bottom = 8.dp), color = MaterialTheme.colorScheme.onSurface.copy(.38f), fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
-            state.servers.filterNot(VpnServer::isInfoMetadata).forEach { server ->
+            state.servers.filterNot(VpnServer::isInfoMetadata).sortedByDescending { it.selected }.take(3).forEach { server ->
                 HomeServerRow(server, selectServer)
                 Spacer(Modifier.height(8.dp))
             }
+            if (state.servers.isNotEmpty()) ActionTile(Icons.Outlined.Route, "Все серверы · ${state.servers.size}", Modifier.fillMaxWidth(), onClick = routes)
             if (state.servers.none { !it.isInfoMetadata() }) {
                 PremiumCard(onClick = routes) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         IconTile(Icons.Outlined.Route)
                         Spacer(Modifier.width(14.dp))
                         Column(Modifier.weight(1f)) {
-                            Text("Серверы загружаются", fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                            Text("Нет VPN-серверов", fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
                             Text("Откройте маршруты для обновления", color = MaterialTheme.colorScheme.onSurface.copy(.45f), fontSize = 12.sp)
                         }
                         Icon(Icons.Outlined.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurface.copy(.32f))
@@ -414,6 +421,7 @@ private fun HomeScreen(
                 }
             }
         }
+    }
     }
 }
 
@@ -429,260 +437,131 @@ private fun SubscriptionHeaderCard(
     testPings: () -> Unit,
     testingPings: Boolean,
 ) {
-    val profileName = displayProfileName(profile)
+    val colors = MaterialTheme.colorScheme
+    val context = LocalContext.current
     val expires = epochSeconds(profile.expireAt)?.takeIf { it > 0 }
     var clock by remember(expires) { mutableStateOf(System.currentTimeMillis()) }
+    var showDescription by rememberSaveable(profile.id) { mutableStateOf(false) }
     LaunchedEffect(expires) {
-        while (expires != null) {
-            delay(30_000)
-            clock = System.currentTimeMillis()
-        }
+        while (expires != null) { clock = System.currentTimeMillis(); delay(30_000) }
     }
-    val daysLeft = expires?.let {
-        val remaining = it * 1000L - clock
-        if (remaining <= 0L) 0 else ((remaining + TimeUnit.DAYS.toMillis(1) - 1L) / TimeUnit.DAYS.toMillis(1)).toInt()
-    }
-    val used = (profile.uploadBytes ?: 0L) + (profile.downloadBytes ?: 0L)
-    val bestPing = servers.mapNotNull(VpnServer::delayMs).minOrNull()
-    val source = profile.sourceUrl?.let { runCatching { URI(it).host }.getOrNull() }
-    val context = LocalContext.current
-    val sourceLink = profile.sourceUrl
-    // INFO-outbound is metadata, not a route. It is persisted during import so it can
-    // still be shown here without polluting the server list.
-    val providerDescription = profile.providerDescription
-    val infoLink = profile.providerWebsite ?: sourceLink?.let(::rootLink)
-    val telegramLink = profile.providerTelegram
+    val daysLeft = expires?.let { ((it * 1000 - clock).coerceAtLeast(0) + 86_399_999) / 86_400_000 }
+    val used = (profile.uploadBytes ?: 0L).coerceAtLeast(0) + (profile.downloadBytes ?: 0L).coerceAtLeast(0)
+    val total = profile.totalBytes?.takeIf { it > 0 }
     val routeServers = servers.filterNot(VpnServer::isInfoMetadata)
+    val support = profile.providerSupportUrl ?: profile.providerTelegram
+    if (showDescription && profile.providerDescription != null) AlertDialog(
+        onDismissRequest = { showDescription = false },
+        title = { Text("Сообщение провайдера") },
+        text = { SelectionContainer { Text(profile.providerDescription, modifier = Modifier.verticalScroll(rememberScrollState()), lineHeight = 23.sp) } },
+        confirmButton = { TextButton(onClick = { showDescription = false }) { Text("Понятно") } },
+    )
     Column(
-        Modifier.fillMaxWidth()
-            .clip(RoundedCornerShape(26.dp))
-            .background(
-                Brush.linearGradient(
-                    listOf(Color(0xFF29245E).copy(.94f), Color(0xFF123F54).copy(.94f)),
-                ),
-            )
-            .border(1.dp, MaterialTheme.colorScheme.primary.copy(.32f), RoundedCornerShape(26.dp))
-            .clickable(onClick = openProfiles)
-            .padding(18.dp),
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(28.dp))
+            .background(Brush.linearGradient(listOf(colors.primaryContainer.copy(.50f), colors.surface, colors.secondaryContainer.copy(.24f))))
+            .border(1.dp, colors.primary.copy(.22f), RoundedCornerShape(28.dp)).padding(18.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             PulseMark(42.dp)
             Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Text(profileName, fontWeight = FontWeight.Bold, fontSize = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Column(Modifier.weight(1f).clickable(onClick = openProfiles)) {
+                Text("ВАША ПОДПИСКА", color = colors.primary, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
+                Spacer(Modifier.height(4.dp))
+                Text(displayProfileName(profile), fontSize = 19.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+            IconButton(onClick = toggleExpanded) {
+                Icon(if (expanded) Icons.Outlined.KeyboardArrowUp else Icons.Outlined.KeyboardArrowDown, if (expanded) "Свернуть подписку" else "Развернуть подписку", tint = colors.onSurfaceVariant)
+            }
+        }
+        Spacer(Modifier.height(16.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            SettingsMetric("СРОК", when { daysLeft == null -> "Без даты"; daysLeft == 0L -> "Истёк"; else -> "$daysLeft дн." }, Modifier.weight(1f))
+            SettingsMetric("СЕРВЕРЫ", routeServers.size.toString(), Modifier.weight(1f))
+            SettingsMetric("ТРАФИК", total?.let { formatBytes((it - used).coerceAtLeast(0)) } ?: "Без лимита", Modifier.weight(1f))
+        }
+        if (total != null) {
+            Spacer(Modifier.height(12.dp))
+            androidx.compose.material3.LinearProgressIndicator(
+                progress = { (used.toFloat() / total).coerceIn(0f, 1f) },
+                modifier = Modifier.fillMaxWidth().height(4.dp).clip(CircleShape),
+                color = if (used >= total) colors.error else colors.primary,
+                trackColor = colors.onSurface.copy(.07f),
+            )
+            Spacer(Modifier.height(6.dp))
+            Text("Использовано ${formatBytes(used)} из ${formatBytes(total)}", color = colors.onSurfaceVariant, fontSize = 11.sp)
+        }
+        AnimatedVisibility(expanded) {
+            Column {
+                profile.providerDescription?.takeIf(String::isNotBlank)?.let { description ->
+                    Spacer(Modifier.height(16.dp))
+                    Column(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp))
+                            .background(colors.surface.copy(.6f)).clickable { showDescription = true }.padding(14.dp),
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Outlined.Info, null, Modifier.size(16.dp), tint = colors.secondary)
+                            Spacer(Modifier.width(7.dp))
+                            Text("ОТ ПРОВАЙДЕРА", color = colors.onSurfaceVariant, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                            Spacer(Modifier.weight(1f))
+                            Icon(Icons.Outlined.ChevronRight, "Полное описание", Modifier.size(16.dp), tint = colors.onSurfaceVariant)
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Text(description, color = colors.onSurface, fontSize = 14.sp, lineHeight = 21.sp, maxLines = 4, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+                if (support != null || profile.providerWebsite != null) {
+                    Spacer(Modifier.height(10.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        support?.let { link -> ActionTile(Icons.Outlined.Send, "Поддержка", Modifier.weight(1f), onClick = { openExternal(context, link) }) }
+                        profile.providerWebsite?.let { link -> ActionTile(Icons.Outlined.Language, "Кабинет", Modifier.weight(1f), onClick = { openExternal(context, link) }) }
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
                 Text(
                     "Обновлено ${DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(profile.updatedAt))}",
-                    color = Color.White.copy(.46f),
-                    fontSize = 10.sp,
-                )
-            }
-            IconButton(onClick = refresh, enabled = !refreshing, modifier = Modifier.size(38.dp)) {
-                if (refreshing) CircularProgressIndicator(Modifier.size(17.dp), color = Color.White, strokeWidth = 2.dp)
-                else Icon(Icons.Outlined.Refresh, "Обновить", tint = Color.White.copy(.7f), modifier = Modifier.size(19.dp))
-            }
-            val canPing = routeServers.isNotEmpty() && !testingPings
-            Row(
-                Modifier.height(36.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(MaterialTheme.colorScheme.secondary.copy(alpha = if (canPing) .14f else .07f))
-                    .border(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = if (canPing) .28f else .12f), RoundedCornerShape(12.dp))
-                    .clickable(enabled = canPing, onClick = testPings)
-                    .padding(horizontal = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                if (testingPings) {
-                    CircularProgressIndicator(Modifier.size(16.dp), color = MaterialTheme.colorScheme.secondary, strokeWidth = 2.dp)
-                } else {
-                    Icon(Icons.Outlined.Speed, "Проверить пинг серверов", tint = MaterialTheme.colorScheme.secondary.copy(alpha = if (canPing) 1f else .5f), modifier = Modifier.size(17.dp))
-                }
-                Spacer(Modifier.width(5.dp))
-                Text(
-                    when {
-                        testingPings -> "Проверка"
-                        bestPing != null -> "${bestPing} мс"
-                        routeServers.isNotEmpty() -> "Пинг"
-                        else -> "—"
-                    },
-                    color = Color.White.copy(alpha = if (canPing || testingPings) .88f else .45f),
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                )
-            }
-            IconButton(onClick = toggleExpanded, modifier = Modifier.size(38.dp)) {
-                Icon(
-                    if (expanded) Icons.Outlined.KeyboardArrowUp else Icons.Outlined.KeyboardArrowDown,
-                    if (expanded) "Свернуть" else "Развернуть",
-                    tint = Color.White.copy(.72f),
+                    color = colors.onSurfaceVariant, fontSize = 11.sp,
                 )
             }
         }
-        AnimatedVisibility(visible = expanded, enter = fadeIn() + scaleIn(), exit = fadeOut()) {
-            Column {
-                Spacer(Modifier.height(10.dp))
-                Text(
-                    source?.let { "Источник: $it" } ?: "Конфигурация добавлена вручную",
-                    color = Color.White.copy(.55f),
-                    fontSize = 11.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Spacer(Modifier.height(10.dp))
-                Column(
-                    Modifier.fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(Color.White.copy(.07f))
-                        .border(1.dp, Color.White.copy(.08f), RoundedCornerShape(16.dp))
-                        .padding(horizontal = 14.dp, vertical = 12.dp),
-                ) {
-                    Text("ОПИСАНИЕ ПОДПИСКИ", color = Color.White.copy(.44f), fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-                    Spacer(Modifier.height(5.dp))
-                    Text(
-                        providerDescription ?: "Описание не указано провайдером",
-                        color = Color.White.copy(if (providerDescription != null) .88f else .48f),
-                        fontSize = 13.sp,
-                        lineHeight = 18.sp,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                Spacer(Modifier.height(10.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    SubscriptionAction(
-                        icon = Icons.Outlined.Info,
-                        label = "Сайт",
-                        enabled = infoLink != null,
-                        tint = Color.White.copy(.86f),
-                        onClick = { infoLink?.let { openExternal(context, it) } },
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    SubscriptionAction(
-                        icon = Icons.Outlined.Send,
-                        label = "Telegram",
-                        enabled = telegramLink != null,
-                        tint = MaterialTheme.colorScheme.secondary,
-                        onClick = { telegramLink?.let { openExternal(context, it) } },
-                    )
-                }
-                Spacer(Modifier.height(18.dp))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    SubscriptionMeta(
-                        title = "СРОК",
-                        value = when {
-                            daysLeft == null -> "Без даты"
-                            daysLeft == 0 -> "Истёк"
-                            else -> "$daysLeft дн."
-                        },
-                        modifier = Modifier.weight(1f),
-                    )
-                    SubscriptionMeta(
-                        title = "ТРАФИК",
-                        value = profile.totalBytes?.let { "${formatBytes(used)} / ${formatBytes(it)}" } ?: "Без лимита",
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-                expires?.let {
-                    Spacer(Modifier.height(12.dp))
-                    Text(
-                        "Действует до ${DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(it * 1000L))}",
-                        color = Color.White.copy(.66f),
-                        fontSize = 12.sp,
-                    )
-                }
-                Spacer(Modifier.height(12.dp))
-                Column(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Color.White.copy(.06f)).padding(horizontal = 14.dp, vertical = 12.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Text(
-                        when {
-                            daysLeft == null -> "Срок подписки не указан"
-                            daysLeft == 0 -> "Подписка закончилась"
-                            else -> "Осталось $daysLeft ${dayWord(daysLeft)}"
-                        },
-                        color = Color.White.copy(.88f),
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Text(
-                        if (routeServers.isNotEmpty()) "Серверов в подписке: ${routeServers.size}" else "Серверы не найдены",
-                        color = Color.White.copy(.56f),
-                        fontSize = 11.sp,
-                    )
-                }
-            }
+        Spacer(Modifier.height(14.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ActionTile(Icons.Outlined.Refresh, "Обновить", Modifier.weight(1f), enabled = profile.sourceUrl != null && !refreshing, loading = refreshing, onClick = refresh)
+            ActionTile(Icons.Outlined.Speed, "Проверить", Modifier.weight(1f), enabled = routeServers.isNotEmpty() && !testingPings, loading = testingPings, onClick = testPings)
         }
     }
 }
 
 @Composable
-private fun SubscriptionAction(
+private fun ActionTile(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     label: String,
-    enabled: Boolean,
-    tint: Color,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    loading: Boolean = false,
     onClick: () -> Unit,
 ) {
+    val colors = MaterialTheme.colorScheme
     Row(
-        Modifier.height(38.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .background(Color.White.copy(alpha = if (enabled) .08f else .035f))
-            .border(1.dp, Color.White.copy(alpha = if (enabled) .14f else .06f), RoundedCornerShape(12.dp))
-            .clickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = 11.dp),
-        verticalAlignment = Alignment.CenterVertically,
+        modifier.heightIn(min = 48.dp).clip(RoundedCornerShape(16.dp))
+            .background(colors.primary.copy(if (enabled) .10f else .04f))
+            .border(1.dp, colors.primary.copy(if (enabled) .16f else .06f), RoundedCornerShape(16.dp))
+            .clickable(enabled = enabled && !loading, role = Role.Button, onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(icon, label, tint = tint.copy(alpha = if (enabled) 1f else .34f), modifier = Modifier.size(18.dp))
+        if (loading) CircularProgressIndicator(Modifier.size(18.dp), color = colors.primary, strokeWidth = 2.dp)
+        else Icon(icon, null, Modifier.size(18.dp), tint = colors.primary.copy(if (enabled) 1f else .4f))
         Spacer(Modifier.width(7.dp))
-        Text(label, color = Color.White.copy(alpha = if (enabled) .82f else .36f), fontSize = 11.sp, fontWeight = FontWeight.Medium)
+        Text(if (loading) "Проверяем…" else label, color = colors.onSurface.copy(if (enabled || loading) 1f else .4f), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
-private fun extractInfoDescription(tag: String): String? {
-    val cleaned = tag
-        .replace(Regex("(?i).*\\binfo\\b\\s*[|:·\\-]?\\s*"), "")
-        .replace(Regex("\\s+"), " ")
-        .trim(' ', '|', ':', '·', '-')
-    return cleaned.takeIf { it.isNotBlank() && !it.equals(tag.trim(), ignoreCase = true) }
-}
-
-private fun extractTelegramLink(value: String?): String? {
-    val handle = value?.let { Regex("(?<![A-Za-z0-9_])@[A-Za-z0-9_]{4,}").find(it)?.value } ?: return null
-    return "https://t.me/${handle.removePrefix("@")}"
-}
-
-private fun extractHttpLink(value: String?): String? = value
-    ?.let { Regex("https?://[^\\s|]+", RegexOption.IGNORE_CASE).find(it)?.value?.trimEnd('.', ',', ')', ']') }
-
-private fun rootLink(value: String): String? = runCatching {
-    URI(value).let { uri ->
-        val host = uri.host ?: return@runCatching null
-        "${uri.scheme ?: "https"}://$host"
-    }
-}.getOrNull()
-
-private fun displayProfileName(profile: VpnProfile): String {
-    val raw = profile.name.trim()
-    if (!raw.startsWith("base64:", ignoreCase = true)) return raw.ifBlank { "VPN подписка" }
-    val encoded = raw.substringAfter(':').filterNot(Char::isWhitespace)
-    val padded = encoded + "=".repeat((4 - encoded.length % 4) % 4)
-    val decoded = runCatching { String(Base64.getDecoder().decode(padded), StandardCharsets.UTF_8) }
-        .getOrNull()?.trim()
-    return decoded?.takeIf { it.isNotBlank() } ?: profile.sourceUrl?.let { runCatching { URI(it).host }.getOrNull() } ?: "VPN подписка"
-}
-
+private fun displayProfileName(profile: VpnProfile): String = profile.name
 private fun epochSeconds(value: Long?): Long? = value?.let { if (it > 100_000_000_000L) it / 1000L else it }
-
 private fun openExternal(context: android.content.Context, link: String) {
-    runCatching {
-        context.startActivity(Intent(Intent.ACTION_VIEW, AndroidUri.parse(link)))
-    }
-}
-
-private fun dayWord(value: Int): String = when {
-    value % 10 == 1 && value % 100 != 11 -> "день"
-    value % 10 in 2..4 && value % 100 !in 12..14 -> "дня"
-    else -> "дней"
+    val uri = runCatching { URI(link) }.getOrNull() ?: return
+    if (uri.scheme?.lowercase() !in setOf("http", "https") || uri.host.isNullOrBlank()) return
+    runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, AndroidUri.parse(link))) }
 }
 
 @Composable
@@ -749,89 +628,46 @@ private fun CompactMetric(icon: String, value: String, label: String) {
 
 @Composable
 private fun PulseConnectButton(status: Status, configured: Boolean, animated: Boolean, onClick: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
     val active = status == Status.Started
     val moving = status == Status.Starting || status == Status.Stopping
-    val infinite = rememberInfiniteTransition(label = "heartbeat")
-    val phase by infinite.animateFloat(
-        0f,
-        1f,
-        infiniteRepeatable(tween(if (moving) 760 else 1320), RepeatMode.Restart),
-        label = "heartbeat-phase",
-    )
-    fun bump(center: Float, width: Float, amplitude: Float): Float {
-        val x = (phase - center) / width
-        return amplitude * exp((-x * x).toDouble()).toFloat()
-    }
-    val beat = if (animated && (active || moving)) {
-        bump(.18f, .055f, 1f) + bump(.31f, .075f, .58f) + bump(.68f, .14f, .18f)
+    val accent = if (active) colors.secondary else colors.primary
+    val pulse = if (animated && (active || moving)) {
+        val transition = rememberInfiniteTransition(label = "connection-breath")
+        val value by transition.animateFloat(0f, 1f, infiniteRepeatable(tween(2200), RepeatMode.Reverse), label = "connection-glow")
+        value
     } else 0f
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
-    val pressScale by animateFloatAsState(if (pressed) .96f else 1f, tween(140), label = "press")
+    val scale by animateFloatAsState(if (pressed) .96f else 1f, tween(180), label = "connection-press")
     val haptic = LocalHapticFeedback.current
-    val ringColor = if (active) PulseColors.Success else MaterialTheme.colorScheme.primary
-
-    Box(Modifier.fillMaxWidth().height(272.dp), contentAlignment = Alignment.Center) {
-        Canvas(Modifier.size(272.dp)) {
-            val center = Offset(size.width / 2, size.height / 2)
-            repeat(3) { index ->
-                val base = size.minDimension * (.31f + index * .085f)
-                drawCircle(
-                    color = ringColor
-                        .copy(alpha = if (active || moving) .18f - index * .035f else .055f),
-                    radius = base * (1f + beat * (.018f + index * .008f)),
-                    center = center,
-                    style = Stroke(width = 1.25.dp.toPx()),
-                )
-            }
+    val label = when {
+        status == Status.Starting -> "Отменить"
+        status == Status.Stopping -> "Завершаем…"
+        active -> "Отключить"
+        configured -> "Подключить"
+        else -> "Добавить подписку"
+    }
+    Box(Modifier.fillMaxWidth().height(238.dp), contentAlignment = Alignment.Center) {
+        Canvas(Modifier.size(234.dp)) {
+            drawCircle(Brush.radialGradient(listOf(accent.copy(.18f + pulse * .07f), Color.Transparent)))
+            drawCircle(accent.copy(.10f), radius = size.minDimension * .48f, style = Stroke(1.dp.toPx()))
+            drawCircle(accent.copy(.25f + pulse * .12f), radius = size.minDimension * (.40f + pulse * .018f), style = Stroke(1.dp.toPx()))
         }
-        Box(
-            Modifier.size(166.dp).graphicsLayer {
-                scaleX = pressScale * (1f + beat * .012f)
-                scaleY = pressScale * (1f + beat * .012f)
-                shadowElevation = if (active) 30.dp.toPx() else 16.dp.toPx()
-                shape = CircleShape
-                clip = true
-            }.background(
-                Brush.linearGradient(
-                    if (active) listOf(Color(0xFF19C8A1), PulseColors.Success)
-                    else listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.secondary),
-                ),
-            ).border(1.dp, Color.White.copy(alpha = .24f), CircleShape)
-                .clickable(interactionSource = interaction, indication = null) {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    if (!moving) onClick()
+        Column(
+            Modifier.size(166.dp).graphicsLayer { scaleX = scale; scaleY = scale }
+                .clip(CircleShape)
+                .background(Brush.linearGradient(listOf(colors.primaryContainer, colors.surface)))
+                .border(1.5.dp, accent.copy(.7f), CircleShape)
+                .clickable(enabled = status != Status.Stopping, role = Role.Button, interactionSource = interaction, indication = null) {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress); onClick()
                 },
-            contentAlignment = Alignment.Center,
+            horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
         ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                if (moving) {
-                    CircularProgressIndicator(Modifier.size(30.dp), color = Color.White, strokeWidth = 2.dp)
-                } else {
-                    Icon(
-                        if (active) Icons.Outlined.AutoGraph
-                        else if (configured) Icons.Outlined.PowerSettingsNew
-                        else Icons.Outlined.Add,
-                        null,
-                        tint = Color.White,
-                        modifier = Modifier.size(32.dp),
-                    )
-                }
-                Spacer(Modifier.height(9.dp))
-                Text(
-                    when {
-                        active -> "В ПУЛЬСЕ"
-                        moving && status == Status.Starting -> "СОЕДИНЯЕМ"
-                        moving -> "ЗАВЕРШАЕМ"
-                        configured -> "ПОДКЛЮЧИТЬ"
-                        else -> "ДОБАВИТЬ КЛЮЧ"
-                    },
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 11.sp,
-                    letterSpacing = 1.1.sp,
-                )
-            }
+            if (moving) CircularProgressIndicator(Modifier.size(36.dp), color = accent, strokeWidth = 2.dp)
+            else Icon(if (configured) Icons.Outlined.PowerSettingsNew else Icons.Outlined.Add, null, Modifier.size(40.dp), tint = accent)
+            Spacer(Modifier.height(14.dp))
+            Text(label, color = colors.onSurface, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
         }
     }
 }
@@ -887,7 +723,7 @@ private fun RoutesScreen(
             placeholder = { Text("Название сервера") },
         )
         Spacer(Modifier.height(9.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             RouteFilterChip("Все", filter == "all") { filter = "all" }
             RouteFilterChip("Доступные", filter == "available") { filter = "available" }
             RouteFilterChip("Медленные / нет ответа", filter == "slow") { filter = "slow" }
@@ -923,7 +759,7 @@ private fun RoutesScreen(
                         EmptyCard(Icons.Outlined.Info, "В профиле нет серверов", "Обновите подписку или добавьте другую.", "Добавить другой", add)
                     }
                     filtered.isEmpty() -> item {
-                        EmptyCard(Icons.Outlined.Search, "Ничего не найдено", "Попробуйте изменить запрос.", "Очистить", { query = "" })
+                        EmptyCard(Icons.Outlined.Search, "Ничего не найдено", "Попробуйте изменить запрос или фильтр.", "Показать все", { query = ""; filter = "all" })
                     }
                     else -> items(filtered, key = VpnServer::tag) { server ->
                         ServerRow(server, { select(server) }, { details = server })
@@ -1071,6 +907,16 @@ private fun ProfilesScreen(
     update: (VpnProfile) -> Unit,
     delete: (VpnProfile) -> Unit,
 ) {
+    var pendingDelete by remember { mutableStateOf<VpnProfile?>(null) }
+    pendingDelete?.let { profile ->
+        AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            title = { Text("Удалить профиль?") },
+            text = { Text("${displayProfileName(profile)} и история проверок будут удалены с устройства. Для восстановления понадобится ссылка подписки.") },
+            confirmButton = { TextButton(onClick = { pendingDelete = null; delete(profile) }) { Text("Удалить", color = MaterialTheme.colorScheme.error) } },
+            dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("Отмена") } },
+        )
+    }
     ScreenColumn {
         ScreenHeader("VPN-профили", back, { IconButton(onClick = add) { Icon(Icons.Outlined.Add, null) } })
         if (state.profiles.isEmpty()) {
@@ -1088,8 +934,8 @@ private fun ProfilesScreen(
                         val expiry = epochSeconds(profile.expireAt)?.takeIf { it > 0 }?.let { DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(it * 1000)) }
                         Text(expiry?.let { "До $it" } ?: if (profile.sourceUrl != null) "Онлайн-подписка" else "Локальная конфигурация", color = MaterialTheme.colorScheme.onSurface.copy(.45f), fontSize = 12.sp)
                     }
-                    if (profile.sourceUrl != null) IconButton(onClick = { update(profile) }) { Icon(Icons.Outlined.Refresh, "Обновить") }
-                    IconButton(onClick = { delete(profile) }) { Icon(Icons.Outlined.DeleteOutline, "Удалить", tint = PulseColors.Danger) }
+                    if (profile.sourceUrl != null) IconButton(onClick = { update(profile) }, enabled = !state.importing) { Icon(Icons.Outlined.Refresh, "Обновить") }
+                    IconButton(onClick = { pendingDelete = profile }, enabled = !state.importing) { Icon(Icons.Outlined.DeleteOutline, "Удалить", tint = MaterialTheme.colorScheme.error) }
                 }
             }
             Spacer(Modifier.height(10.dp))
@@ -1144,60 +990,98 @@ private fun SpeedGraph(samples: List<Long>) {
 private fun SettingsScreen(state: PulseUiState, viewModel: PulseViewModel, openVpnSettings: () -> Unit) {
     ScreenColumn {
         ScreenHeader("Настройки")
+        Text("Ваш Pulse. Ваши правила.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp)
+        Spacer(Modifier.height(20.dp))
         SettingsSnapshotCard(state, { viewModel.navigate(Screen.PROFILES) }, { viewModel.navigate(Screen.ROUTES) })
+        SectionLabel("ОФОРМЛЕНИЕ")
+        ThemeGallery(state, viewModel::setAccentTheme)
+        Spacer(Modifier.height(12.dp))
+        SettingsCard {
+            SettingSwitch(Icons.Outlined.Tune, "Тёмное оформление", "Палитра всех экранов и карточек", state.darkTheme, viewModel::setDarkTheme)
+            DividerInset()
+            SettingSwitch(Icons.Outlined.AutoGraph, "Живой фон", "Мягкое свечение и пульсация подключения", state.liveEffects, viewModel::setLiveEffects)
+        }
+        SectionLabel("СОЕДИНЕНИЕ")
+        SettingsCard {
+            SettingSwitch(Icons.Outlined.Bolt, "Автоподключение", "Восстанавливать VPN после перезагрузки", state.autoConnect, viewModel::setAutoConnect)
+            DividerInset()
+            SettingSwitch(Icons.Outlined.Speed, "Выбирать быстрый сервер", "После проверки задержки", state.autoFastest, viewModel::setAutoFastest)
+            DividerInset()
+            SettingAction(Icons.Outlined.Lock, "Защита при обрыве", "Настроить постоянный VPN в Android", openVpnSettings)
+        }
+        SectionLabel("ТРАФИК И DNS")
+        SettingsCard {
+            ChoiceRow("Маршрутизация", state.routingMode, listOf("rules" to "По правилам", "global" to "Весь трафик", "direct" to "Напрямую"), viewModel::setRoutingMode)
+            DividerInset()
+            ChoiceRow("DNS-сервер", state.dnsMode, listOf("local" to "Из профиля", "cloudflare" to "Cloudflare", "google" to "Google"), viewModel::setDnsMode)
+            DividerInset()
+            SettingAction(Icons.Outlined.Apps, "Приложения", perAppLabel(state), { viewModel.navigate(Screen.APPS) })
+        }
+        Spacer(Modifier.height(12.dp))
         SettingsHintCard()
-        SectionLabel("ПОДКЛЮЧЕНИЕ")
+        SectionLabel("ПОДПИСКИ")
         SettingsCard {
-            SettingSwitch(Icons.Outlined.Bolt, "Автоподключение", "Запуск VPN после перезагрузки", state.autoConnect, viewModel::setAutoConnect)
+            SettingSwitch(Icons.Outlined.Refresh, "Обновлять при открытии", "Получать свежие серверы и описание", state.refreshOnOpen, viewModel::setRefreshOnOpen)
             DividerInset()
-            SettingSwitch(Icons.Outlined.Refresh, "Обновлять при запуске", "Проверять удалённые подписки при открытии", state.refreshOnOpen, viewModel::setRefreshOnOpen)
+            SettingAction(Icons.Outlined.Devices, "Управление профилями", "${state.profiles.size} профилей · ссылки и конфигурации", { viewModel.navigate(Screen.PROFILES) })
             DividerInset()
-            SettingSwitch(Icons.Outlined.Speed, "Быстрый сервер", "После проверки выбирать минимальную задержку", state.autoFastest, viewModel::setAutoFastest)
-            DividerInset()
-            SettingAction(Icons.Outlined.Lock, "Kill switch", "Always-on VPN и блокировка без VPN", openVpnSettings)
-            DividerInset()
-            SettingAction(Icons.Outlined.Apps, "Маршрутизация приложений", perAppLabel(state), { viewModel.navigate(Screen.APPS) })
+            ActionTile(Icons.Outlined.Refresh, "Обновить подписки", Modifier.fillMaxWidth(), enabled = !state.importing && state.profiles.any { it.sourceUrl != null }, loading = state.importing, onClick = { viewModel.refreshSubscriptions() })
         }
-        SectionLabel("МАРШРУТИЗАЦИЯ")
+        SectionLabel("ДИАГНОСТИКА")
         SettingsCard {
-            SettingAction(Icons.Outlined.Refresh, "Обновить подписки", "Проверить все ссылки сейчас", { viewModel.refreshSubscriptions() })
+            SettingAction(Icons.Outlined.Speed, "Проверка серверов", "Задержка, доступность и история", { viewModel.navigate(Screen.ROUTES) })
             DividerInset()
-            ChoiceRow("Режим трафика", state.routingMode, listOf("rules" to "Правила", "global" to "Весь VPN", "direct" to "Напрямую"), viewModel::setRoutingMode)
-            DividerInset()
-            ChoiceRow("DNS", state.dnsMode, listOf("local" to "Из профиля", "cloudflare" to "Cloudflare", "google" to "Google"), viewModel::setDnsMode)
+            SettingAction(Icons.Outlined.AutoGraph, "Статистика сессии", "Скорость и объём переданного трафика", { viewModel.navigate(Screen.STATS) })
         }
-        SectionLabel("ВИД")
-        SettingsCard {
-            SettingSwitch(Icons.Outlined.Tune, "Тёмная тема", "Фирменная тема Pulse", state.darkTheme, viewModel::setDarkTheme)
-            DividerInset()
-            ChoiceRow(
-                "Цвет интерфейса", state.accentTheme,
-                listOf(
-                    "profile" to "Тема подписки",
-                    "pulse" to "Pulse",
-                    "ocean" to "Ocean",
-                    "ember" to "Ember",
-                    "mono" to "Mono",
-                ), viewModel::setAccentTheme,
-            )
-            DividerInset()
-            SettingSwitch(Icons.Outlined.AutoGraph, "Живые эффекты", "Фон, пульсация и переходы интерфейса", state.liveEffects, viewModel::setLiveEffects)
+        Spacer(Modifier.height(28.dp))
+        Row(Modifier.fillMaxWidth().padding(bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            PulseMark(32.dp)
+            Spacer(Modifier.width(10.dp))
+            Column {
+                Text("Pulse VPN", fontWeight = FontWeight.SemiBold)
+                Text("Версия ${app.pulse.vpn.BuildConfig.VERSION_NAME}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Spacer(Modifier.weight(1f))
+            Text(viewModel.coreVersion(), fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        SectionLabel("ПРОТОКОЛЫ")
-        SettingsCard {
-            val protocols = state.servers.filterNot(VpnServer::isInfoMetadata).groupingBy { it.type.uppercase() }.eachCount()
-            SettingAction(
-                Icons.Outlined.Route,
-                "Поддерживаемые протоколы",
-                if (protocols.isEmpty()) "Добавьте подписку, чтобы увидеть протоколы" else protocols.entries.joinToString(" · ") { "${it.key}: ${it.value}" },
-                { viewModel.navigate(Screen.ROUTES) },
-            )
-            DividerInset()
-            SettingAction(Icons.Outlined.Speed, "Диагностика серверов", "Пинг, доступность и история последних проверок", { viewModel.navigate(Screen.ROUTES) })
-        }
-        SectionLabel("О ПРИЛОЖЕНИИ")
-        SettingsCard {
-            SettingAction(Icons.Outlined.Info, "Pulse VPN 0.5.2", "Kotlin · Compose · sing-box · arm64 / armeabi / x86_64", {})
+    }
+}
+
+@Composable
+private fun ThemeGallery(state: PulseUiState, select: (String) -> Unit) {
+    val options = listOf("pulse" to "Pulse", "ocean" to "Ocean", "ember" to "Ember", "midnight" to "Midnight", "mono" to "Mono", "profile" to "Из подписки")
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        options.chunked(2).forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                row.forEach { (value, name) ->
+                    val active = state.accentTheme == value
+                    val accent = if (value == "profile") state.selectedProfile?.themeHint ?: "pulse" else value
+                    PulseTheme(state.darkTheme, accent) {
+                        val colors = MaterialTheme.colorScheme
+                        Column(
+                            Modifier.weight(1f).clip(RoundedCornerShape(20.dp))
+                                .background(colors.surface)
+                                .border(if (active) 2.dp else 1.dp, if (active) colors.primary else colors.outline.copy(.15f), RoundedCornerShape(20.dp))
+                                .selectable(selected = active, role = Role.RadioButton, onClick = { select(value) }).padding(12.dp),
+                        ) {
+                            Box(
+                                Modifier.fillMaxWidth().height(52.dp).clip(RoundedCornerShape(12.dp))
+                                    .background(Brush.linearGradient(listOf(colors.background, colors.primaryContainer, colors.secondaryContainer))),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Box(Modifier.size(30.dp).clip(CircleShape).background(colors.primary.copy(.2f)).border(1.dp, colors.primary, CircleShape), contentAlignment = Alignment.Center) {
+                                    Icon(Icons.Outlined.PowerSettingsNew, null, Modifier.size(17.dp), tint = colors.primary)
+                                }
+                            }
+                            Spacer(Modifier.height(10.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(name, Modifier.weight(1f), fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                                if (active) Icon(Icons.Outlined.Check, "Выбрано", Modifier.size(16.dp), tint = colors.primary)
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -1265,6 +1149,8 @@ private fun routingLabel(value: String): String = when (value) {
 
 @Composable
 private fun AppsScreen(state: PulseUiState, back: () -> Unit, setMode: (Int) -> Unit, toggle: (String) -> Unit) {
+    var search by rememberSaveable { mutableStateOf("") }
+    val visibleApps = remember(state.apps, search) { state.apps.filter { it.label.contains(search, true) || it.packageName.contains(search, true) } }
     Column(Modifier.fillMaxSize().padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding())) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = back) { Icon(Icons.Outlined.ArrowBack, null) }
@@ -1286,16 +1172,18 @@ private fun AppsScreen(state: PulseUiState, back: () -> Unit, setMode: (Int) -> 
                 ) { Text(label, color = if (active) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurface.copy(.5f), fontSize = 12.sp) }
             }
         }
+        OutlinedTextField(search, { search = it }, modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 8.dp), singleLine = true, shape = RoundedCornerShape(18.dp), placeholder = { Text("Найти приложение") }, leadingIcon = { Icon(Icons.Outlined.Search, null) })
         LazyColumn(contentPadding = PaddingValues(14.dp, 8.dp, 14.dp, 32.dp)) {
-            items(state.apps, key = ProfileRepository.AppEntry::packageName) { app ->
+            if (visibleApps.isEmpty()) item { Text("Приложения не найдены", modifier = Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            items(visibleApps, key = ProfileRepository.AppEntry::packageName) { app ->
                 Row(
-                    Modifier.fillMaxWidth().clickable { toggle(app.packageName) }.padding(horizontal = 8.dp, vertical = 12.dp),
+                    Modifier.fillMaxWidth().clickable(enabled = state.perAppMode != SettingsManager.Keys.PER_APP_PROXY_DISABLED) { toggle(app.packageName) }.padding(horizontal = 8.dp, vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     AppIcon(app.packageName, app.label)
                     Spacer(Modifier.width(14.dp))
                     Column(Modifier.weight(1f)) { Text(app.label); Text(app.packageName, color = MaterialTheme.colorScheme.onSurface.copy(.38f), fontSize = 11.sp) }
-                    androidx.compose.material3.Checkbox(checked = app.packageName in state.selectedApps, onCheckedChange = { toggle(app.packageName) })
+                    androidx.compose.material3.Checkbox(checked = app.packageName in state.selectedApps && state.perAppMode != SettingsManager.Keys.PER_APP_PROXY_DISABLED, enabled = state.perAppMode != SettingsManager.Keys.PER_APP_PROXY_DISABLED, onCheckedChange = { toggle(app.packageName) })
                 }
             }
         }
@@ -1363,11 +1251,11 @@ private fun ImportDialog(loading: Boolean, onDismiss: () -> Unit, onImport: (Str
 @Composable
 private fun StatusPill(status: Status) {
     val (text, color) = when (status) {
-        Status.Started -> "ONLINE" to PulseColors.Success
-        Status.Starting, Status.Stopping -> "WAIT" to Color(0xFFFFC46B)
-        Status.Stopped -> "OFFLINE" to MaterialTheme.colorScheme.onSurface.copy(.38f)
+        Status.Started -> "В сети" to MaterialTheme.colorScheme.secondary
+        Status.Starting, Status.Stopping -> "Ожидание" to MaterialTheme.colorScheme.primary
+        Status.Stopped -> "Выключен" to MaterialTheme.colorScheme.onSurfaceVariant
     }
-    Row(Modifier.clip(CircleShape).background(color.copy(.10f)).border(1.dp, color.copy(.25f), CircleShape).padding(horizontal = 11.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.clip(CircleShape).background(color.copy(.10f)).border(1.dp, color.copy(.25f), CircleShape).padding(horizontal = 9.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(6.dp).clip(CircleShape).background(color)); Spacer(Modifier.width(6.dp)); Text(text, color = color, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
     }
 }
@@ -1468,19 +1356,37 @@ private fun InlineBanner(message: String, close: () -> Unit) {
 
 @Composable
 private fun SettingSwitch(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, subtitle: String, checked: Boolean, change: (Boolean) -> Unit) {
-    Row(verticalAlignment = Alignment.CenterVertically) { Icon(icon, null, tint = MaterialTheme.colorScheme.secondary); Spacer(Modifier.width(16.dp)); Column(Modifier.weight(1f)) { Text(title, fontWeight = FontWeight.Medium); Text(subtitle, color = MaterialTheme.colorScheme.onSurface.copy(.42f), fontSize = 12.sp) }; Switch(checked, change) }
+    Row(Modifier.fillMaxWidth().heightIn(min = 64.dp).toggleable(value = checked, role = Role.Switch, onValueChange = change), verticalAlignment = Alignment.CenterVertically) {
+        IconTile(icon)
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f).padding(end = 8.dp)) {
+            Text(title, fontWeight = FontWeight.Medium, fontSize = 14.sp)
+            Spacer(Modifier.height(3.dp))
+            Text(subtitle, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp, lineHeight = 17.sp)
+        }
+        Switch(checked, null)
+    }
 }
 
 @Composable
 private fun SettingAction(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, subtitle: String, click: () -> Unit) {
-    Row(Modifier.fillMaxWidth().clickable(onClick = click).padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) { Icon(icon, null, tint = MaterialTheme.colorScheme.secondary); Spacer(Modifier.width(16.dp)); Column(Modifier.weight(1f)) { Text(title, fontWeight = FontWeight.Medium); Text(subtitle, color = MaterialTheme.colorScheme.onSurface.copy(.42f), fontSize = 12.sp) }; Icon(Icons.Outlined.ChevronRight, null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurface.copy(.25f)) }
+    Row(Modifier.fillMaxWidth().heightIn(min = 64.dp).clickable(role = Role.Button, onClick = click), verticalAlignment = Alignment.CenterVertically) {
+        IconTile(icon)
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f).padding(end = 8.dp)) {
+            Text(title, fontWeight = FontWeight.Medium, fontSize = 14.sp)
+            Spacer(Modifier.height(3.dp))
+            Text(subtitle, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp, lineHeight = 17.sp)
+        }
+        Icon(Icons.Outlined.ChevronRight, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
 }
 
 @Composable
 private fun ChoiceRow(title: String, selected: String, choices: List<Pair<String, String>>, change: (String) -> Unit) {
     Column { Text(title, fontWeight = FontWeight.Medium); Spacer(Modifier.height(11.dp)); Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) { choices.forEach { (value, label) ->
         val active = selected == value
-        Box(Modifier.weight(1f).clip(CircleShape).background(if (active) MaterialTheme.colorScheme.primary.copy(.25f) else MaterialTheme.colorScheme.surfaceVariant).clickable { change(value) }.padding(vertical = 9.dp), contentAlignment = Alignment.Center) { Text(label, color = if (active) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurface.copy(.55f), fontSize = 11.sp, fontWeight = FontWeight.SemiBold) }
+        Box(Modifier.weight(1f).heightIn(min = 48.dp).clip(RoundedCornerShape(14.dp)).background(if (active) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(.5f)).selectable(selected = active, role = Role.RadioButton, onClick = { change(value) }).padding(horizontal = 5.dp, vertical = 12.dp), contentAlignment = Alignment.Center) { Text(label, color = if (active) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, textAlign = androidx.compose.ui.text.style.TextAlign.Center) }
     } } }
 }
 

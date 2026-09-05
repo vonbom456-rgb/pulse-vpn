@@ -455,6 +455,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     }
 
     override fun writeDebugMessage(message: String?) {
-        Log.d("sing-box", message!!)
+        // Core messages may contain subscription endpoints or configuration values.
+        // Never forward provider data to the Android system log.
     }
 }

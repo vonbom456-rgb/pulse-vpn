@@ -45,23 +45,32 @@ class SubscriptionImporter(
         val normalized = response.normalized ?: normalize(response.body)
         // Read provider metadata before runtime normalization: INFO entries are kept
         // only as provider metadata and are never added to the selectable route list.
-        val metadata = detectProviderMetadata(response.body).merge(detectProviderMetadata(normalized))
+        // Body fields override HTTP headers, as in Happ. INFO remains a fallback.
+        val fields = response.metadata + SubscriptionMetadata.fromBody(response.body)
+        val info = detectProviderMetadata(response.body).merge(detectProviderMetadata(normalized))
+        val support = SubscriptionMetadata.link(fields["support-url"])
+        val metadata = ProviderMetadata(
+            SubscriptionMetadata.text(fields["announce"]),
+            support?.takeIf { URI(it).host.lowercase() in setOf("t.me", "telegram.me", "www.t.me") },
+            SubscriptionMetadata.link(fields["profile-web-page-url"]),
+        ).merge(info)
         ImportedProfile(
-            name = response.name ?: guessName(trimmed, normalized),
+            name = decodeProfileTitle(fields["profile-title"]) ?: response.name ?: guessName(trimmed, normalized),
             config = normalized,
             sourceUrl = trimmed.takeIf { remote },
-            userInfo = response.userInfo,
-            themeHint = detectTheme(normalized),
+            userInfo = fields["subscription-userinfo"]?.let { parseUserInfo(SubscriptionMetadata.text(it)) } ?: response.userInfo,
+            themeHint = detectTheme(SubscriptionMetadata.unwrap(response.body)),
             providerDescription = metadata.description,
             providerTelegram = metadata.telegram,
             providerWebsite = metadata.website,
+            providerSupportUrl = support ?: metadata.telegram,
         )
     }
 
     private fun fetchCompatible(url: String): Fetched {
         val identity = identityProvider()
         val timestamp = System.currentTimeMillis() / 1000
-        val pulseAgent = "PulseVPN/0.5.2 (Android; sing-box)"
+        val pulseAgent = "PulseVPN/0.6.0 (Android; sing-box)"
         val agents = if (url.contains("/redirect/auto", ignoreCase = true)) {
             listOf("Happ/4.6.0/android/$timestamp", pulseAgent, "sing-box/v1.13.15")
         } else {
@@ -91,7 +100,7 @@ class SubscriptionImporter(
                 if (identity.deviceOs.isNotBlank()) header("X-Device-OS", identity.deviceOs)
                 if (identity.osVersion.isNotBlank()) header("X-Ver-OS", identity.osVersion)
                 if (identity.deviceModel.isNotBlank()) header("X-Device-Model", identity.deviceModel)
-                header("X-App-Version", "0.5.2")
+                header("X-App-Version", "0.6.0")
             }
             .build()
         client.newCall(request).execute().use { response ->
@@ -107,12 +116,14 @@ class SubscriptionImporter(
             val disposition = response.header("content-disposition").orEmpty()
             val profileTitle = response.header("profile-title")
                 ?: Regex("filename\\*=UTF-8''([^;]+)", RegexOption.IGNORE_CASE).find(disposition)?.groupValues?.get(1)?.let(::decode)
-            return Fetched(body, decodeProfileTitle(profileTitle), parseUserInfo(response.header("subscription-userinfo")))
+            val metadata = SubscriptionMetadata.keys.mapNotNull { key -> response.header(key)?.let { key to it } }.toMap()
+            return Fetched(body, decodeProfileTitle(profileTitle), parseUserInfo(response.header("subscription-userinfo")), metadata = metadata)
         }
     }
 
     private fun normalize(raw: String): String {
-        val text = raw.trim().trimStart('\uFEFF')
+        val text = SubscriptionMetadata.unwrap(raw).lineSequence()
+            .filterNot { it.trimStart().startsWith('#') }.joinToString("\n").trim().trimStart('\uFEFF')
         parseSingBox(text)?.let { return ensureRuntimeConfig(it) }
 
         val decoded = decodeBase64(text)
@@ -258,6 +269,7 @@ class SubscriptionImporter(
 
     private fun ensureRuntimeConfig(root: JsonObject): String {
         val map = root.toMutableMap()
+        (SubscriptionMetadata.keys + setOf("theme", "theme_name", "ui_theme", "appearance")).forEach(map::remove)
         val rawOutbounds = (root["outbounds"] as? JsonArray)?.filterIsInstance<JsonObject>().orEmpty()
         val providerErrors = rawOutbounds.filter(::isProviderError)
         val originalProxyCount = rawOutbounds.count(::isRouteServer)
@@ -281,7 +293,7 @@ class SubscriptionImporter(
         }
         if (proxyTags.isNotEmpty() && outbounds.none {
                 val item = it as? JsonObject ?: return@none false
-                item.string("type") == "selector" && item.string("tag").equals("Proxy", ignoreCase = true)
+                item.string("type") == "selector" && item.string("tag") == "Proxy"
             }) {
             outbounds.add(0, buildJsonObject {
                 put("type", "selector"); put("tag", "Proxy")
@@ -334,8 +346,7 @@ class SubscriptionImporter(
             .filter(validTargets::contains)
             .distinct()
             .let { current ->
-                if (current.isNotEmpty() || !item.string("tag").equals("Proxy", ignoreCase = true)) current
-                else proxyTags.filter(validTargets::contains)
+                if (item.string("tag") == "Proxy") (current + proxyTags.filter(validTargets::contains)).distinct() else current
             }
         values["outbounds"] = JsonArray(references.map(::JsonPrimitive))
         if (item.string("type") == "selector") {
@@ -430,9 +441,8 @@ class SubscriptionImporter(
                     listOfNotNull(tag.takeIf(String::isNotBlank), item.string("description").takeIf(String::isNotBlank), item.string("remarks").takeIf(String::isNotBlank)).joinToString(" | ")
                 } else null
             }.firstOrNull().orEmpty()
-            val description = text.replace(Regex("(?i).*\\binfo\\b\\s*[|:·\\-]?\\s*"), "")
-                .replace(Regex("\\s+"), " ").trim(' ', '|', ':', '·', '-')
-                .takeIf { it.isNotBlank() && !it.equals(text.trim(), true) }
+            val description = text.replaceFirst(Regex("(?i)^.*?\\binfo\\b\\s*[|:·\\-]?\\s*"), "")
+                .trim(' ', '|', ':', '·', '-').takeIf { it.isNotBlank() }
             val telegram = Regex("(?<![A-Za-z0-9_])@[A-Za-z0-9_]{4,}").find(text)?.value?.let { "https://t.me/${it.removePrefix("@")}" }
             val website = Regex("https?://[^\\s|]+", RegexOption.IGNORE_CASE).find(text)?.value?.trimEnd('.', ',', ')', ']')
             ProviderMetadata(description, telegram, website)
@@ -446,22 +456,8 @@ class SubscriptionImporter(
         }
     }.getOrDefault("Pulse profile")
 
-    private fun decodeProfileTitle(value: String?): String? {
-        val title = value?.trim()?.takeIf(String::isNotBlank) ?: return null
-        val urlDecoded = decodeHeaderValue(title)
-        val lower = urlDecoded.lowercase()
-        val encodedValue = when {
-            lower.startsWith("base64:") -> urlDecoded.substringAfter(':')
-            lower.startsWith("base64,") -> urlDecoded.substringAfter(',')
-            else -> urlDecoded
-        }.trim()
-        val base64Decoded = decodeBase64(encodedValue)?.takeIf { decoded ->
-            decoded.length in 1..80 && decoded.none { it == '\n' || it == '\r' }
-        }
-        // Не показываем пользователю служебный base64-префикс, если заголовок повреждён.
-        if (base64Decoded == null && lower.startsWith("base64:")) return null
-        return (base64Decoded ?: urlDecoded).trim().take(80)
-    }
+    private fun decodeProfileTitle(value: String?): String? =
+        SubscriptionMetadata.text(value, 80)?.replace('\n', ' ')?.trim()?.takeIf(String::isNotBlank)
 
     private fun JsonObject.string(key: String) = this[key]?.jsonPrimitive?.contentOrNull.orEmpty()
     private fun JsonObject.isProviderInfo(): Boolean = string("tag").contains("info", ignoreCase = true) || string("server").contains("info.", ignoreCase = true)
@@ -476,6 +472,7 @@ class SubscriptionImporter(
         val name: String?,
         val userInfo: SubscriptionUserInfo,
         val normalized: String? = null,
+        val metadata: Map<String, String> = emptyMap(),
     )
 
     private data class ProviderMetadata(
