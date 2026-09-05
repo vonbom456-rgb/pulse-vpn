@@ -104,6 +104,7 @@ class PulseUiSmokeTest {
             shell("settings put system font_scale 1.5")
             compose.activityRule.scenario.recreate()
             compose.waitForIdle()
+            android.os.SystemClock.sleep(800)
             snapshot("10-small-large-font-home")
             compose.runOnIdle { ViewModelProvider(compose.activity)[PulseViewModel::class.java].navigate(Screen.ADVANCED) }
             compose.onNodeWithText("Поиск настроек").assertIsDisplayed()

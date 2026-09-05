@@ -94,6 +94,8 @@ These are implemented capabilities, not claims of 35 independently validated rea
 - Last delays are restored when switching profiles, not only when reloading.
 - Wi-Fi refresh checks the active network, not an unrelated connected network.
 - Updated runtime settings are also saved for subsequent background/boot connections.
+- Large system fonts use a wider connection control so the action does not split mid-word.
+- System navigation/status icon contrast follows the app palette after recomposition.
 
 ## Verification and limits
 

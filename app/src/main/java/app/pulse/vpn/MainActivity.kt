@@ -31,6 +31,16 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             val state by viewModel.state.collectAsStateWithLifecycle()
+            androidx.compose.runtime.SideEffect {
+                androidx.core.view.WindowCompat.getInsetsController(window, window.decorView).apply {
+                    isAppearanceLightStatusBars = !state.darkTheme
+                    isAppearanceLightNavigationBars = !state.darkTheme
+                }
+                if (android.os.Build.VERSION.SDK_INT >= 29) {
+                    window.isStatusBarContrastEnforced = false
+                    window.isNavigationBarContrastEnforced = false
+                }
+            }
             LaunchedEffect(state.options, state.vpnStatus) {
                 val secure = android.view.WindowManager.LayoutParams.FLAG_SECURE
                 val awake = android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON

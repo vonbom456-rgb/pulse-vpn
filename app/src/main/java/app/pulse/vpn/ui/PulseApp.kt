@@ -659,19 +659,21 @@ private fun PulseConnectButton(status: Status, configured: Boolean, animated: Bo
         configured -> "Подключить"
         else -> "Добавить подписку"
     }
-    val compact = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp < 700 || androidx.compose.ui.platform.LocalDensity.current.fontScale > 1.3f
+    val largeText = androidx.compose.ui.platform.LocalDensity.current.fontScale > 1.3f
+    val compact = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp < 700 || largeText
     val buttonSize = if (compact) 124.dp else 150.dp
+    val controlShape = if (largeText) RoundedCornerShape(28.dp) else CircleShape
     Box(Modifier.fillMaxWidth().height(if (compact) 160.dp else 202.dp), contentAlignment = Alignment.Center) {
-        Canvas(Modifier.size(if (compact) 156.dp else 198.dp)) {
+        if (!largeText) Canvas(Modifier.size(if (compact) 156.dp else 198.dp)) {
             drawCircle(Brush.radialGradient(listOf(accent.copy(.18f + pulse * .07f), Color.Transparent)))
             drawCircle(accent.copy(.10f), radius = size.minDimension * .48f, style = Stroke(1.dp.toPx()))
             drawCircle(accent.copy(.25f + pulse * .12f), radius = size.minDimension * (.40f + pulse * .018f), style = Stroke(1.dp.toPx()))
         }
         Column(
-            Modifier.size(buttonSize).graphicsLayer { scaleX = scale; scaleY = scale }
-                .clip(CircleShape)
+            (if (largeText) Modifier.widthIn(max = 300.dp).fillMaxWidth().heightIn(min = 124.dp) else Modifier.size(buttonSize)).graphicsLayer { scaleX = scale; scaleY = scale }
+                .clip(controlShape)
                 .background(Brush.linearGradient(listOf(colors.primaryContainer, colors.surface)))
-                .border(1.5.dp, accent.copy(.7f), CircleShape)
+                .border(1.5.dp, accent.copy(.7f), controlShape)
                 .clickable(enabled = status != Status.Stopping, role = Role.Button, interactionSource = interaction, indication = null) {
                     if (haptics) haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                     onClick()
