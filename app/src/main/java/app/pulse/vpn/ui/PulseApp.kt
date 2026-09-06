@@ -338,7 +338,7 @@ private fun HomeScreen(
         }
 
         Spacer(Modifier.height(12.dp))
-        ConnectionCard(state, connect, disconnect, addProfile, routes, stats)
+        ConnectionCard(state, connect, disconnect, addProfile, routes, stats, refreshProfile, profiles)
         Spacer(Modifier.height(2.dp))
         state.connectionError?.let { error ->
             Surface(color = MaterialTheme.colorScheme.errorContainer, shape = RoundedCornerShape(18.dp)) {
@@ -382,7 +382,7 @@ private fun HomeScreen(
                     Icon(Icons.Outlined.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurface.copy(alpha = .32f))
                 }
             }
-        } else if (state.options.bool("show_home_servers")) {
+        } else if (subscriptionExpanded && state.options.bool("show_home_servers") && state.selectedProfile?.issue?.blocksConnection != true) {
             Text("СЕРВЕРЫ", modifier = Modifier.fillMaxWidth().padding(start = 4.dp, bottom = 8.dp), color = MaterialTheme.colorScheme.onSurface.copy(.38f), fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
             state.servers.filterNot(VpnServer::isInfoMetadata).sortedByDescending { it.selected }.take(3).forEach { server ->
                 HomeServerRow(server, selectServer)
@@ -600,7 +600,9 @@ private fun RoutesScreen(
                         EmptyCard(Icons.Outlined.Route, "Маршрутов пока нет", "Добавьте подписку — список появится сразу после импорта.", "Добавить подписку", add)
                     }
                     state.servers.none { !it.isInfoMetadata() } -> item {
-                        EmptyCard(Icons.Outlined.Info, "В профиле нет серверов", "Обновите подписку или добавьте другую.", "Добавить другой", add)
+                        val issue = state.selectedProfile?.issue
+                        val remote = state.selectedProfile?.sourceUrl != null
+                        EmptyCard(Icons.Outlined.Info, issue?.title ?: "В подписке нет серверов", issue?.let { "${it.message}\n\n${it.hint}" } ?: "Обновите подписку или добавьте другую.", if (remote) "Обновить подписку" else "Добавить другую", if (remote) refresh else add)
                     }
                     filtered.isEmpty() -> item {
                         EmptyCard(Icons.Outlined.Search, "Ничего не найдено", "Попробуйте изменить запрос или фильтр.", "Показать все", { query = ""; filter = "all"; protocol = "all" })
@@ -766,7 +768,7 @@ private fun ProfilesScreen(
     ScreenColumn {
         ScreenHeader("VPN-профили", back, { IconButton(onClick = add) { Icon(Icons.Outlined.Add, null) } })
         if (state.profiles.isEmpty()) {
-            EmptyCard(Icons.Outlined.Add, "Нет профилей", "Импортируйте ссылку вашего VPN-провайдера или конфигурацию.", "Добавить", add)
+            EmptyCard(Icons.Outlined.Add, "Нет профилей", "Добавьте ссылку подписки или готовую конфигурацию.", "Добавить", add)
         } else state.profiles.forEach { profile ->
             PremiumCard(onClick = { select(profile) }) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -775,10 +777,11 @@ private fun ProfilesScreen(
                     Column(Modifier.weight(1f)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(displayProfileName(profile), fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                            if (state.selectedProfile?.id == profile.id) Text("  ACTIVE", color = PulseColors.Success, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            if (state.selectedProfile?.id == profile.id) Text("  ВЫБРАНА", color = PulseColors.Success, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                         }
                         val expiry = epochSeconds(profile.expireAt)?.takeIf { it > 0 }?.let { DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(it * 1000)) }
                         Text(expiry?.let { "До $it" } ?: if (profile.sourceUrl != null) "Онлайн-подписка" else "Локальная конфигурация", color = MaterialTheme.colorScheme.onSurface.copy(.45f), fontSize = 12.sp)
+                        profile.issue?.let { Text(it.title, color = MaterialTheme.colorScheme.error, fontSize = 12.sp) }
                     }
                     if (profile.sourceUrl != null) IconButton(onClick = { update(profile) }, enabled = !state.importing) { Icon(Icons.Outlined.Refresh, "Обновить") }
                     IconButton(onClick = { pendingDelete = profile }, enabled = !state.importing) { Icon(Icons.Outlined.DeleteOutline, "Удалить", tint = MaterialTheme.colorScheme.error) }
@@ -915,7 +918,7 @@ private fun ImportDialog(loading: Boolean, error: String?, onDismiss: () -> Unit
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 Text(
-                    "Ссылка провайдера, QR или конфигурация. Pulse автоматически определит формат.",
+                    "Ссылка подписки, QR или конфигурация. Pulse автоматически определит формат.",
                     color = MaterialTheme.colorScheme.onSurface.copy(.52f),
                     lineHeight = 20.sp,
                 )

@@ -22,6 +22,8 @@ class PulseUiSmokeTest {
     @Test fun nativeCoreAcceptsRoutingAndDnsConfigurations() = runBlocking {
         val imported = SubscriptionImporter().import("vless://11111111-1111-4111-8111-111111111111@example.invalid:443?security=tls#Test")
         val source = Json.parseToJsonElement(imported.config).jsonObject
+        val unavailable = SubscriptionImporter().import("""{"outbounds":[{"type":"vless","tag":"Device limit reached","server":"error.example.invalid","server_port":443}]}""")
+        Libbox.checkConfig(unavailable.config)
         listOf("rules", "global", "direct").forEach { mode ->
             listOf("local", "cloudflare", "google", "quad9", "adguard").forEach { dns ->
                 Libbox.checkConfig(RuntimeSettings.apply(source, "Test", mode, dns).toString())
@@ -72,10 +74,19 @@ class PulseUiSmokeTest {
         compose.onNodeWithText("Поддержка").assertIsDisplayed()
         snapshot("01-home-pulse")
         compose.onNodeWithText("Welcome to Pulse. Your subscription details stay here.").performScrollTo().assertIsDisplayed().performClick()
-        compose.onNodeWithText("Сообщение провайдера").assertIsDisplayed()
+        compose.onNodeWithText("О подписке").assertIsDisplayed()
         snapshot("02-provider-description")
         compose.onNodeWithText("Понятно").performClick()
         snapshot("03-subscription-card")
+        compose.onNodeWithContentDescription("Свернуть подписку").performScrollTo().performClick()
+        compose.onNodeWithText("Welcome to Pulse. Your subscription details stay here.").assertDoesNotExist()
+        compose.onNodeWithText("Поддержка").assertDoesNotExist()
+        compose.onNodeWithText("Срок подписки").assertDoesNotExist()
+        compose.onNodeWithText("СЕРВЕРЫ").assertDoesNotExist()
+        snapshot("03a-collapsed-subscription")
+        compose.onNodeWithContentDescription("Развернуть подписку").performClick()
+        compose.onNodeWithText("Поддержка").assertExists()
+        compose.onNodeWithText("СЕРВЕРЫ").assertExists()
         compose.onNodeWithContentDescription("Сменить сервер").performScrollTo().performClick()
         compose.onNodeWithText("Быстрый выбор").assertIsDisplayed()
         snapshot("03b-quick-server-picker")
@@ -133,5 +144,29 @@ class PulseUiSmokeTest {
             shell("wm size reset")
             shell("wm density reset")
         }
+        compose.activityRule.scenario.recreate()
+        compose.runOnIdle {
+            model = ViewModelProvider(compose.activity)[PulseViewModel::class.java]
+            model.setDarkTheme(true)
+            model.import("""
+                #profile-title: Pulse Demo — лимит устройств
+                #support-url: https://t.me/pulse_demo
+                #profile-web-page-url: https://example.invalid
+                {"outbounds":[{"type":"vless","tag":"❌ Лимит устройств: удалите старое устройство","server":"error.example.invalid","server_port":443}]}
+            """.trimIndent())
+        }
+        compose.waitUntil(15_000) { model.state.value.selectedProfile?.issue?.code == "device_limit" && !model.state.value.importing }
+        compose.runOnIdle { model.clearMessage(); model.startVpn() }
+        org.junit.Assert.assertEquals(io.nekohasekai.sfa.constant.Status.Stopped, model.state.value.vpnStatus)
+        compose.runOnIdle { model.clearMessage() }
+        compose.onNodeWithText("Лимит устройств").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("❌ Лимит устройств: удалите старое устройство").assertIsDisplayed()
+        compose.onNodeWithText("Подключить").assertDoesNotExist()
+        compose.onNodeWithText("СЕРВЕРЫ").assertDoesNotExist()
+        snapshot("12-unavailable-subscription")
+        compose.onNodeWithContentDescription("Свернуть подписку").performScrollTo().performClick()
+        compose.onNodeWithText("❌ Лимит устройств: удалите старое устройство").assertDoesNotExist()
+        compose.onNodeWithText("Лимит устройств").assertIsDisplayed()
+        snapshot("13-collapsed-unavailable-subscription")
     }
 }

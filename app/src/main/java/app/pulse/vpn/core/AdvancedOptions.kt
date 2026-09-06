@@ -18,7 +18,7 @@ object OptionCatalog {
     private fun toggle(key: String, title: String, hint: String, group: String, default: Boolean = false, reconnect: Boolean = false) =
         OptionSpec(key, title, hint, group, default.toString(), reconnect = reconnect)
     val all = listOf(
-        choice("mtu", "Размер пакета MTU", "Меньше — полезно при зависании сайтов. Из профиля сохраняет настройки провайдера.", "Туннель", "0", "0" to "Из профиля", "1280" to "1280", "1400" to "1400", "1500" to "1500", reconnect = true),
+        choice("mtu", "Размер пакета MTU", "Меньше — полезно при зависании сайтов. «Из профиля» оставляет значение из подписки.", "Туннель", "0", "0" to "Из профиля", "1280" to "1280", "1400" to "1400", "1500" to "1500", reconnect = true),
         choice("stack", "Сетевой стек", "Меняйте при проблемах совместимости с сетью.", "Туннель", "profile", "profile" to "Из профиля", "system" to "System", "gvisor" to "gVisor", "mixed" to "Mixed", reconnect = true),
         toggle("bypass_lan", "Локальная сеть напрямую", "Принтеры и частные IP-адреса обходят VPN. Не включайте в недоверенной сети.", "Туннель", reconnect = true),
         toggle("block_quic", "Отключить QUIC", "Блокирует UDP/443: браузер сможет перейти на TCP. Может мешать некоторым приложениям.", "Туннель", reconnect = true),
@@ -60,4 +60,3 @@ data class AdvancedOptions(val values: Map<String, String> = emptyMap()) {
         return copy(values = values + (key to value))
     }
 }
-

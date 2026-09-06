@@ -18,6 +18,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import org.yaml.snakeyaml.Yaml
 import java.net.URI
 import java.net.URLDecoder
@@ -40,14 +41,12 @@ class SubscriptionImporter(
     suspend fun import(input: String): ImportedProfile = withContext(Dispatchers.IO) {
         val trimmed = input.trim()
         require(trimmed.isNotBlank()) { "Вставьте ссылку или конфигурацию" }
-        val remote = trimmed.startsWith("https://") || trimmed.startsWith("http://")
+        val remote = trimmed.startsWith("https://", true) || trimmed.startsWith("http://", true)
+        if (remote) require(trimmed.toHttpUrlOrNull() != null) { "Проверьте ссылку подписки" }
         val response = if (remote) fetchCompatible(trimmed) else Fetched(trimmed, null, SubscriptionUserInfo())
-        val normalized = response.normalized ?: normalize(response.body)
-        // Read provider metadata before runtime normalization: INFO entries are kept
-        // only as provider metadata and are never added to the selectable route list.
-        // Body fields override HTTP headers, as in Happ. INFO remains a fallback.
+        val normalized = if (response.issue != null) Normalized(unavailableConfig(), response.issue) else response.normalized ?: normalize(response.body)
         val fields = response.metadata + SubscriptionMetadata.fromBody(response.body)
-        val info = detectProviderMetadata(response.body).merge(detectProviderMetadata(normalized))
+        val info = detectProviderMetadata(response.body).merge(detectProviderMetadata(normalized.config))
         val support = SubscriptionMetadata.link(fields["support-url"])
         val metadata = ProviderMetadata(
             SubscriptionMetadata.text(fields["announce"]),
@@ -55,8 +54,8 @@ class SubscriptionImporter(
             SubscriptionMetadata.link(fields["profile-web-page-url"]),
         ).merge(info)
         ImportedProfile(
-            name = decodeProfileTitle(fields["profile-title"]) ?: response.name ?: guessName(trimmed, normalized),
-            config = normalized,
+            name = decodeProfileTitle(fields["profile-title"]) ?: response.name ?: if (!remote && normalized.issue?.blocksConnection == true) "Подписка" else guessName(trimmed, normalized.config),
+            config = normalized.config,
             sourceUrl = trimmed.takeIf { remote },
             userInfo = fields["subscription-userinfo"]?.let { parseUserInfo(SubscriptionMetadata.text(it)) } ?: response.userInfo,
             themeHint = detectTheme(SubscriptionMetadata.unwrap(response.body)),
@@ -64,6 +63,7 @@ class SubscriptionImporter(
             providerTelegram = metadata.telegram,
             providerWebsite = metadata.website,
             providerSupportUrl = support ?: metadata.telegram,
+            issue = normalized.issue,
         )
     }
 
@@ -73,86 +73,90 @@ class SubscriptionImporter(
         val pulseAgent = "PulseVPN/${app.pulse.vpn.BuildConfig.VERSION_NAME} (Android; sing-box)"
         val agents = if (url.contains("/redirect/auto", ignoreCase = true)) {
             listOf("Happ/4.6.0/android/$timestamp", pulseAgent, "sing-box/v1.13.15")
-        } else {
-            listOf(pulseAgent, "Happ/4.6.0/android/$timestamp", "sing-box/v1.13.15")
+        } else listOf(pulseAgent, "Happ/4.6.0/android/$timestamp", "sing-box/v1.13.15")
+        var lastResponse: Fetched? = null
+        for (userAgent in agents.distinct()) {
+            val fetched = try { fetch(url, userAgent, identity) }
+                catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+                catch (_: Exception) { continue }
+            lastResponse = fetched
+            // An explicit access/HTTP error is information about this subscription.
+            // Preserve it, without turning a denial into a selectable VPN route.
+            if (fetched.issue != null) return fetched
+            try { return fetched.copy(normalized = normalize(fetched.body)) }
+            catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+            catch (_: Exception) { /* Some redirect panels need another compatible format. */ }
         }
-        var lastError: Throwable? = null
-        agents.distinct().forEach { userAgent ->
-            runCatching {
-                // A redirect endpoint can return HTTP 200 with an incompatible body for
-                // one client profile. Validate the body before accepting that attempt so
-                // the next compatible User-Agent gets a chance.
-                val fetched = fetch(url, userAgent, identity)
-                fetched.copy(normalized = normalize(fetched.body))
-            }.onSuccess { return it }.onFailure { lastError = it }
-        }
-        throw IllegalArgumentException(
-            lastError?.message ?: "Не удалось прочитать подписку. Проверьте ссылку и доступность провайдера.",
-        )
+        return lastResponse?.copy(issue = SubscriptionIssue("format", "По этой ссылке пока нет поддерживаемой конфигурации. Ссылка сохранена — её можно обновить позже."))
+            ?: Fetched("", null, SubscriptionUserInfo(), issue = SubscriptionIssue("network", "Не удалось загрузить подписку. Проверьте интернет и попробуйте обновить её позже."))
     }
 
     private fun fetch(url: String, userAgent: String, identity: SubscriptionIdentity): Fetched {
         val request = Request.Builder().url(url)
-            .header("User-Agent", userAgent)
-            .header("Accept", "application/json,text/plain,*/*")
+            .header("User-Agent", userAgent).header("Accept", "application/json,text/plain,*/*")
             .apply {
                 if (identity.hwid.isNotBlank()) header("X-HWID", identity.hwid)
                 if (identity.deviceOs.isNotBlank()) header("X-Device-OS", identity.deviceOs)
                 if (identity.osVersion.isNotBlank()) header("X-Ver-OS", identity.osVersion)
                 if (identity.deviceModel.isNotBlank()) header("X-Device-Model", identity.deviceModel)
                 header("X-App-Version", app.pulse.vpn.BuildConfig.VERSION_NAME.removeSuffix("-native"))
-            }
-            .build()
+            }.build()
         client.newCall(request).execute().use { response ->
-            if (response.header("x-hwid-max-devices-reached").toBoolean()) {
-                error("Достигнут лимит устройств подписки. Удалите старое устройство у провайдера.")
+            fun flag(key: String) = response.header(key)?.lowercase() in setOf("true", "1")
+            val issue = when {
+                flag("x-hwid-max-devices-reached") -> SubscriptionIssue("device_limit", "Достигнут лимит устройств этой подписки.")
+                flag("x-hwid-not-supported") -> SubscriptionIssue("device_id", "Подписка не приняла идентификатор этого устройства.")
+                response.code in setOf(401, 403, 404, 410) -> SubscriptionIssue("access_denied", "Ссылка недействительна или доступ к подписке ограничен (HTTP ${response.code}).")
+                !response.isSuccessful -> SubscriptionIssue("http", "Сервис подписки временно недоступен (HTTP ${response.code}).")
+                else -> null
             }
-            if (response.header("x-hwid-not-supported").toBoolean()) {
-                error("Провайдер не принял идентификатор устройства. Обновите приложение или обратитесь в поддержку.")
-            }
-            if (!response.isSuccessful) error("Провайдер вернул HTTP ${response.code}")
-            val body = response.body.string().trimStart('\uFEFF')
-            if (body.isBlank()) error("Подписка вернула пустой ответ")
+            // Bound error pages and malformed/oversized subscription responses.
+            val source = response.body.source()
+            require(!source.request(4L * 1024 * 1024 + 1)) { "Ответ подписки слишком большой" }
+            val body = source.readUtf8().trimStart('\uFEFF')
             val disposition = response.header("content-disposition").orEmpty()
             val profileTitle = response.header("profile-title")
                 ?: Regex("filename\\*=UTF-8''([^;]+)", RegexOption.IGNORE_CASE).find(disposition)?.groupValues?.get(1)?.let(::decode)
             val metadata = SubscriptionMetadata.keys.mapNotNull { key -> response.header(key)?.let { key to it } }.toMap()
-            return Fetched(body, decodeProfileTitle(profileTitle), parseUserInfo(response.header("subscription-userinfo")), metadata = metadata)
+            val detailedIssue = if (issue != null) messageIssue(body)?.let { detail -> if (issue.code in setOf("device_limit", "device_id")) detail.copy(code = issue.code) else detail } ?: issue else null
+            return Fetched(body, decodeProfileTitle(profileTitle), parseUserInfo(response.header("subscription-userinfo")), metadata = metadata, issue = detailedIssue)
         }
     }
 
-    private fun normalize(raw: String): String {
+    private fun normalize(raw: String): Normalized {
         val text = SubscriptionMetadata.unwrap(raw).lineSequence()
             .filterNot { it.trimStart().startsWith('#') }.joinToString("\n").trim().trimStart('\uFEFF')
-        parseSingBox(text)?.let { return ensureRuntimeConfig(it) }
-
         val decoded = decodeBase64(text)
-        if (decoded != null && decoded != text) {
-            parseSingBox(decoded)?.let { return ensureRuntimeConfig(it) }
-            parseUriLines(decoded)?.let { return buildConfig(validateProxies(it)) }
+        val root = parseSingBox(text) ?: decoded?.let(::parseSingBox)
+            ?: (parseUriLines(text) ?: decoded?.let(::parseUriLines) ?: parseClash(text))?.let { proxies ->
+                buildJsonObject { put("outbounds", JsonArray(proxies)) }
+            } ?: return messageIssue(text)?.let { Normalized(unavailableConfig(), it) }
+                ?: error("Не удалось прочитать подписку. Проверьте ссылку или формат конфигурации.")
+        val entries = (root["outbounds"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
+        val hasServers = entries.any(::isRouteServer)
+        val messages = entries.filter(::isProviderError).map { it.string("tag") }
+        val issue = when {
+            messages.isNotEmpty() -> SubscriptionIssue.fromServiceMessages(messages, !hasServers)
+            !hasServers -> SubscriptionIssue("no_servers", "В подписке пока нет серверов для подключения. Попробуйте обновить её позже.")
+            else -> null
         }
-
-        parseUriLines(text)?.let { return buildConfig(validateProxies(it)) }
-        parseClash(text)?.let { return buildConfig(validateProxies(it)) }
-        error("Не удалось прочитать подписку. Проверьте ссылку или совместимость провайдера.")
+        return Normalized(if (hasServers) ensureRuntimeConfig(root) else unavailableConfig(), issue)
     }
 
-    private fun validateProxies(proxies: List<JsonObject>): List<JsonObject> {
-        val valid = proxies.filterNot(::isProviderError)
-        if (valid.isNotEmpty()) return valid
-        if (proxies.isNotEmpty()) {
-            error("Провайдер не выдал серверы. Проверьте лимит устройств или обновите подписку.")
-        }
-        error("Подписка не содержит серверов")
-    }
+    private fun unavailableConfig(): String = ensureRuntimeConfig(buildJsonObject {
+        put("log", buildJsonObject { put("disabled", true) })
+        put("outbounds", buildJsonArray { add(buildJsonObject { put("type", "direct"); put("tag", "direct") }) })
+        put("route", buildJsonObject { put("rules", buildJsonArray { add(buildJsonObject { put("action", "reject") }) }) })
+    })
 
-    private fun isProviderError(item: JsonObject): Boolean {
-        val tag = item.string("tag").lowercase()
-        val server = item.string("server").lowercase()
-        return tag.startsWith("❌") ||
-            server.startsWith("error.") ||
-            listOf("отсутствуют данные", "missing device", "device limit", "hwid", "лимит устройств")
-                .any(tag::contains)
+    private fun isProviderError(item: JsonObject): Boolean = SubscriptionIssue.isServiceEntry(item.string("tag"), item.string("server"))
+
+    private fun messageIssue(body: String): SubscriptionIssue? {
+        val root = runCatching { json.parseToJsonElement(body) as? JsonObject }.getOrNull()
+        val candidates = if (root != null) listOf("message", "error", "detail").mapNotNull { (root[it] as? JsonPrimitive)?.contentOrNull }
+            else listOf(body.trim()).filter { it.length <= 2000 && '<' !in it && !it.contains("://") }
+        val messages = candidates.filter { SubscriptionIssue.isServiceEntry(it, "") }
+        return messages.takeIf { it.isNotEmpty() }?.let { SubscriptionIssue.fromServiceMessages(it, true) }
     }
 
     private fun parseSingBox(text: String): JsonObject? = runCatching {
@@ -271,11 +275,6 @@ class SubscriptionImporter(
         val map = root.toMutableMap()
         (SubscriptionMetadata.keys + setOf("theme", "theme_name", "ui_theme", "appearance")).forEach(map::remove)
         val rawOutbounds = (root["outbounds"] as? JsonArray)?.filterIsInstance<JsonObject>().orEmpty()
-        val providerErrors = rawOutbounds.filter(::isProviderError)
-        val originalProxyCount = rawOutbounds.count(::isRouteServer)
-        if (providerErrors.isNotEmpty() && originalProxyCount == 0) {
-            error("Провайдер не выдал серверы. Проверьте лимит устройств или обновите подписку.")
-        }
         val proxyTags = rawOutbounds.filter(::isRouteServer).mapNotNull { it.string("tag").takeIf(String::isNotBlank) }
         val validGroupTargets = rawOutbounds
             .filterNot(::isProviderError)
@@ -471,9 +470,12 @@ class SubscriptionImporter(
         val body: String,
         val name: String?,
         val userInfo: SubscriptionUserInfo,
-        val normalized: String? = null,
+        val normalized: Normalized? = null,
         val metadata: Map<String, String> = emptyMap(),
+        val issue: SubscriptionIssue? = null,
     )
+
+    private data class Normalized(val config: String, val issue: SubscriptionIssue?)
 
     private data class ProviderMetadata(
         val description: String? = null,

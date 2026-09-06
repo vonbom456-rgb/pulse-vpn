@@ -18,6 +18,7 @@ data class VpnProfile(
     val providerTelegram: String? = null,
     val providerWebsite: String? = null,
     val providerSupportUrl: String? = null,
+    val issue: SubscriptionIssue? = null,
 )
 
 data class VpnServer(
@@ -43,6 +44,7 @@ data class ImportedProfile(
     val providerTelegram: String? = null,
     val providerWebsite: String? = null,
     val providerSupportUrl: String? = null,
+    val issue: SubscriptionIssue? = null,
 )
 
 data class SubscriptionUserInfo(

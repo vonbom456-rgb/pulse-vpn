@@ -88,15 +88,14 @@ class SubscriptionImporterTest {
     }
 
     @Test
-    fun rejectsProviderErrorNodeInsteadOfCreatingBrokenProfile() = runBlocking {
-        val result = runCatching {
-            importer.import(
+    fun savesServiceErrorWithoutCreatingBrokenVpnRoute() = runBlocking {
+        val result = importer.import(
                 "vless://11111111-1111-4111-8111-111111111111@error.cdn-global.pro:443?security=tls#%E2%9D%8C%20Missing%20device%20HWID",
             )
-        }
-        assertTrue(result.isFailure)
-        assertFalse(result.exceptionOrNull()?.message.orEmpty().contains("VLESS"))
-        assertTrue(result.exceptionOrNull()?.message.orEmpty().contains("Провайдер"))
+        assertEquals("device_id", result.issue?.code)
+        assertTrue(result.issue!!.blocksConnection)
+        assertTrue(result.issue.message.contains("Missing device HWID"))
+        assertFalse(result.config.contains("error.cdn-global.pro"))
     }
 
     @Test

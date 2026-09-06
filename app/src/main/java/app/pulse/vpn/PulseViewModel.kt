@@ -134,6 +134,7 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         if (selected != null) {
+            if (selected.issue?.blocksConnection == true && _state.value.vpnStatus != Status.Stopped) stopVpn()
             // Rebuild the runtime config from the provider source so refreshes do not
             // silently drop routing/DNS choices made in Settings.
             repository.applyRoutingSettings(selected)
@@ -167,7 +168,7 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
                         importing = false,
                         importCompleted = it.importCompleted + 1,
                         screen = Screen.HOME,
-                        message = "Подписка добавлена · $count серверов",
+                        message = result.profile.issue?.let { issue -> "Подписка сохранена · ${issue.title}" } ?: "Подписка добавлена · $count серверов",
                     )
                 }
             }
@@ -184,8 +185,8 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
             when (val result = repository.update(profile)) {
                 is ImportResult.Success -> {
                     reloadInternal()
-                    _state.update { it.copy(settingsPending = it.settingsPending || (it.selectedProfile?.id == profile.id && it.vpnStatus != Status.Stopped)) }
-                    showMessage("Подписка обновлена")
+                    _state.update { it.copy(settingsPending = it.settingsPending || (result.profile.issue == null && it.selectedProfile?.id == profile.id && it.vpnStatus != Status.Stopped)) }
+                    showMessage(result.profile.issue?.let { if (it.retryable && !it.blocksConnection) "Не удалось обновить. Сохранённые серверы доступны." else it.title } ?: "Подписка обновлена")
                 }
                 is ImportResult.Error -> showMessage(result.message)
             }
@@ -326,6 +327,7 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
         if (connectionJob?.isActive == true) return
         if (_state.value.importing) return showMessage("Дождитесь завершения импорта")
         if (_state.value.selectedProfile == null) return showMessage("Сначала добавьте подписку")
+        _state.value.selectedProfile?.issue?.takeIf { it.blocksConnection }?.let { return showMessage("${it.title}. ${it.hint}") }
         if (_state.value.servers.isEmpty()) return connectionFailed("В подписке нет VPN-серверов. Обновите её или выберите другой профиль.")
         if (_state.value.perAppMode == SettingsManager.Keys.PER_APP_PROXY_INCLUDE && _state.value.selectedApps.isEmpty())
             return connectionFailed("Не выбраны приложения. Откройте настройки приложений или включите режим «Все».")
@@ -389,8 +391,8 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
         var activeUpdated = false
         try {
             remote.forEach { profile ->
-                when (repository.update(profile)) {
-                    is ImportResult.Success -> { updated++; if (profile.id == _state.value.selectedProfile?.id) activeUpdated = true }
+                when (val result = repository.update(profile)) {
+                    is ImportResult.Success -> if (result.profile.issue == null) { updated++; if (profile.id == _state.value.selectedProfile?.id) activeUpdated = true }
                     is ImportResult.Error -> Unit
                 }
             }

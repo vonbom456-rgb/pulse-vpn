@@ -48,6 +48,7 @@ class ProfileRepository(
                 providerTelegram = imported.providerTelegram,
                 providerWebsite = imported.providerWebsite,
                 providerSupportUrl = imported.providerSupportUrl,
+                issue = imported.issue,
             )
             // Keep the provider response untouched as the source. Runtime settings are
             // applied to using_config.json and can therefore be changed without losing
@@ -57,7 +58,7 @@ class ProfileRepository(
             writeEffectiveConfig(profile)
             select(profile)
             ImportResult.Success(profile)
-        }.getOrElse { ImportResult.Error(it.message ?: "Не удалось импортировать профиль") }
+        }.getOrElse { if (it is kotlinx.coroutines.CancellationException) throw it; ImportResult.Error(it.message ?: "Не удалось импортировать профиль") }
     }
 
     suspend fun update(profile: VpnProfile): ImportResult {
@@ -66,22 +67,32 @@ class ProfileRepository(
             runCatching {
                 val imported = importer.import(url)
                 val directory = File(root, profile.id)
+                // A temporary fetch failure must not erase an already usable subscription.
+                if (imported.issue?.retryable == true && servers(profile).isNotEmpty()) {
+                    val cached = profile.copy(issue = imported.issue.copy(blocksConnection = false))
+                    File(directory, "profile.json").writeAtomicText(json.encodeToString(cached))
+                    return@withContext ImportResult.Success(cached)
+                }
                 val updated = profile.copy(
-                    name = imported.name, updatedAt = System.currentTimeMillis(),
-                    uploadBytes = imported.userInfo.upload, downloadBytes = imported.userInfo.download,
-                    totalBytes = imported.userInfo.total, expireAt = imported.userInfo.expire,
-                    themeHint = imported.themeHint,
-                    providerDescription = imported.providerDescription,
-                    providerTelegram = imported.providerTelegram,
-                    providerWebsite = imported.providerWebsite,
-                    providerSupportUrl = imported.providerSupportUrl,
+                    name = if (imported.issue == null) imported.name else profile.name,
+                    updatedAt = if (imported.issue == null) System.currentTimeMillis() else profile.updatedAt,
+                    uploadBytes = imported.userInfo.upload ?: profile.uploadBytes,
+                    downloadBytes = imported.userInfo.download ?: profile.downloadBytes,
+                    totalBytes = imported.userInfo.total ?: profile.totalBytes,
+                    expireAt = imported.userInfo.expire ?: profile.expireAt,
+                    themeHint = imported.themeHint ?: profile.themeHint,
+                    providerDescription = imported.providerDescription ?: profile.providerDescription,
+                    providerTelegram = imported.providerTelegram ?: profile.providerTelegram,
+                    providerWebsite = imported.providerWebsite ?: profile.providerWebsite,
+                    providerSupportUrl = imported.providerSupportUrl ?: profile.providerSupportUrl,
+                    issue = imported.issue,
                 )
                 File(directory, SOURCE_CONFIG).writeAtomicText(imported.config)
                 File(directory, "profile.json").writeAtomicText(json.encodeToString(updated))
                 writeEffectiveConfig(updated)
                 if (selectedId() == updated.id) select(updated)
                 ImportResult.Success(updated)
-            }.getOrElse { ImportResult.Error(it.message ?: "Ошибка обновления") }
+            }.getOrElse { if (it is kotlinx.coroutines.CancellationException) throw it; ImportResult.Error(it.message ?: "Ошибка обновления") }
         }
     }
 
@@ -115,7 +126,8 @@ class ProfileRepository(
 
     fun select(profile: VpnProfile) {
         val config = File(File(root, profile.id), "using_config.json")
-        ProfileManager.select(profile.name, config)
+        if (profile.issue?.blocksConnection == true) ProfileManager.clear()
+        else ProfileManager.select(profile.name, config)
         preferences.edit().putString("selected_id", profile.id).apply()
     }
 
@@ -129,7 +141,7 @@ class ProfileRepository(
     }
 
     suspend fun servers(profile: VpnProfile?): List<VpnServer> = withContext(Dispatchers.IO) {
-        if (profile == null) return@withContext emptyList()
+        if (profile == null || profile.issue?.blocksConnection == true) return@withContext emptyList()
         val config = runCatching { json.parseToJsonElement(File(File(root, profile.id), "using_config.json").readText()).jsonObject }.getOrNull()
             ?: return@withContext emptyList()
         val selected = preferences.getString(selectedServerKey(profile), null)
@@ -141,11 +153,7 @@ class ProfileRepository(
             val address = item.value("server").ifBlank { null }
             // Provider INFO outbound is metadata/contact, never a VPN route.
             if (tag.contains("info", ignoreCase = true) || address?.contains("info.", ignoreCase = true) == true) return@mapNotNull null
-            if (
-                tag.startsWith("❌") ||
-                address?.startsWith("error.", ignoreCase = true) == true ||
-                tag.contains("отсутствуют данные", ignoreCase = true)
-            ) return@mapNotNull null
+            if (SubscriptionIssue.isServiceEntry(tag, address.orEmpty())) return@mapNotNull null
             VpnServer(tag, type, address, item["server_port"]?.jsonPrimitive?.intOrNull, false)
         }
         // Older builds could persist the provider's INFO outbound as the selected route.
@@ -178,7 +186,7 @@ class ProfileRepository(
     }
 
     suspend fun selectServer(profile: VpnProfile, server: VpnServer) = withContext(Dispatchers.IO) {
-        if (server.isInfoMetadata()) return@withContext
+        if (profile.issue?.blocksConnection == true || server.isInfoMetadata() || SubscriptionIssue.isServiceEntry(server.tag, server.address.orEmpty())) return@withContext
         val file = runtimeConfigFile(profile)
         val config = runCatching { json.parseToJsonElement(file.readText()).jsonObject }.getOrNull() ?: return@withContext
         if (config["outbounds"]?.jsonArray.orEmpty().none { (it as? JsonObject)?.value("tag") == server.tag }) return@withContext
@@ -197,7 +205,7 @@ class ProfileRepository(
 
     private fun JsonObject.value(key: String) = this[key]?.jsonPrimitive?.contentOrNull.orEmpty()
     private fun JsonObject.isProviderInfo(): Boolean = value("tag").contains("info", ignoreCase = true) || value("server").contains("info.", ignoreCase = true)
-    private fun JsonObject.isProviderError(): Boolean = value("tag").startsWith("❌") || value("server").startsWith("error.", ignoreCase = true)
+    private fun JsonObject.isProviderError(): Boolean = SubscriptionIssue.isServiceEntry(value("tag"), value("server"))
     private fun JsonObject.isRouteServer(): Boolean = value("tag").isNotBlank() &&
         value("type") !in setOf("direct", "block", "dns", "selector", "urltest") &&
         !isProviderInfo() && !isProviderError()
@@ -205,6 +213,12 @@ class ProfileRepository(
     @Synchronized
     private fun writeEffectiveConfig(profile: VpnProfile) {
         val base = readBaseConfig(profile) ?: return
+        if (profile.issue?.blocksConnection == true) {
+            // Never apply global/direct routing to the reject-only placeholder config.
+            runtimeConfigFile(profile).writeAtomicText(base.toString())
+            if (selectedId() == profile.id) ProfileManager.clear()
+            return
+        }
         val sourceItems = base["outbounds"]?.jsonArray.orEmpty().filterIsInstance<JsonObject>()
         val routeTags = sourceItems.filter { it.isRouteServer() }.mapNotNull { it.value("tag").takeIf(String::isNotBlank) }
         val validTargets = sourceItems
