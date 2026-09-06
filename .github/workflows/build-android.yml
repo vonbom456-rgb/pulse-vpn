@@ -79,7 +79,7 @@ jobs:
             adb install -t app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
             adb shell am instrument -w -r app.pulse.vpn.test/androidx.test.runner.AndroidJUnitRunner | tee ui-instrumentation.txt
             adb pull /sdcard/Android/data/app.pulse.vpn/files/ui-review ui-review
-            grep -q 'OK (2 tests)' ui-instrumentation.txt
+            grep -q 'OK (3 tests)' ui-instrumentation.txt
       - name: UI screenshots and results
         if: always()
         uses: actions/upload-artifact@v4

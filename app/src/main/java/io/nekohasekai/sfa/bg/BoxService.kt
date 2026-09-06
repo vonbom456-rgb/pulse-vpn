@@ -44,6 +44,10 @@ import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.ensureActive
+import kotlin.coroutines.coroutineContext
 
 class BoxService(private val service: Service, private val platformInterface: PlatformInterface) : CommandServerHandler {
     companion object {
@@ -80,6 +84,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     private val binder = ServiceBinder(status)
     private val notification = ServiceNotification(status, service)
     private lateinit var commandServer: CommandServer
+    private var startupJob: Job? = null
 
     private var receiverRegistered = false
     private val receiver =
@@ -166,11 +171,13 @@ class BoxService(private val service: Service, private val platformInterface: Pl
 //                        }
                     },
                 )
+            } catch (cancelled: CancellationException) { throw cancelled
             } catch (e: Exception) {
                 stopAndAlert(Alert.CreateService, e.message)
                 return
             }
 
+            coroutineContext.ensureActive()
             if (commandServer.needWIFIState()) {
                 val wifiPermission =
                     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
@@ -184,11 +191,13 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 }
             }
 
-            status.postValue(Status.Started)
             withContext(Dispatchers.Main) {
+                coroutineContext.ensureActive()
+                status.value = Status.Started
                 notification.show(lastProfileName, R.string.status_started)
             }
             notification.start()
+        } catch (cancelled: CancellationException) { throw cancelled
         } catch (e: Exception) {
             stopAndAlert(Alert.StartService, e.message)
             return
@@ -307,24 +316,25 @@ class BoxService(private val service: Service, private val platformInterface: Pl
      */
     @OptIn(DelicateCoroutinesApi::class)
     private fun stopService(isRestart: Boolean = false) {
-        if (status.value != Status.Started) return
+        if (status.value !in listOf(Status.Started, Status.Starting)) return
         status.value = Status.Stopping
+        startupJob?.cancel()
         if (receiverRegistered) {
             service.unregisterReceiver(receiver)
             receiverRegistered = false
         }
         notification.close()
         GlobalScope.launch(Dispatchers.IO) {
+            startupJob?.join()
             val pfd = fileDescriptor
             if (pfd != null) {
                 pfd.close()
                 fileDescriptor = null
             }
             DefaultNetworkMonitor.stop()
-            closeService()
-            commandServer.apply {
-                close()
-//                Seq.destroyRef(refnum)
+            if (::commandServer.isInitialized) {
+                closeService()
+                commandServer.close()
             }
             SettingsManager.startedByUser = false
             withContext(Dispatchers.Main) {
@@ -394,7 +404,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             receiverRegistered = true
         }
 
-        GlobalScope.launch(Dispatchers.IO) {
+        startupJob = GlobalScope.launch(Dispatchers.IO) {
             SettingsManager.startedByUser = true
             try {
                 startCommandServer()
@@ -402,6 +412,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 stopAndAlert(Alert.StartCommandServer, e.message)
                 return@launch
             }
+            coroutineContext.ensureActive()
             startService()
         }
         return Service.START_NOT_STICKY

@@ -165,6 +165,8 @@ fun PulseApp(
         viewModel.navigate(if (state.screen in setOf(Screen.APPS, Screen.STATS)) Screen.SETTINGS else Screen.HOME)
     }
     var showImport by remember { mutableStateOf(false) }
+    var showServerPicker by remember { mutableStateOf(false) }
+    if (showServerPicker) ServerPickerSheet(state, viewModel::selectServer, { showServerPicker = false }, { viewModel.navigate(Screen.ROUTES) })
     LaunchedEffect(state.importCompleted) { showImport = false }
     LaunchedEffect(state.message, state.importing, state.testingServers) {
         if (state.message != null && !state.importing && !state.testingServers) {
@@ -193,7 +195,7 @@ fun PulseApp(
             PulseBackdrop(Modifier.fillMaxSize(), animated = state.liveEffects)
             AnimatedContent(targetState = state.screen, label = "screen") { screen ->
                 when (screen) {
-                    Screen.HOME -> HomeScreen(state, requestConnect, viewModel::stopVpn, { viewModel.navigate(Screen.ROUTES) }, { viewModel.navigate(Screen.PROFILES) }, { viewModel.clearImportError(); showImport = true }, viewModel::selectServer, { state.selectedProfile?.let(viewModel::updateProfile) }, viewModel::testServers)
+                    Screen.HOME -> HomeScreen(state, requestConnect, viewModel::stopVpn, { showServerPicker = true }, { viewModel.navigate(Screen.PROFILES) }, { viewModel.clearImportError(); showImport = true }, viewModel::selectServer, { state.selectedProfile?.let(viewModel::updateProfile) }, viewModel::testServers, viewModel::cancelPingTest, { viewModel.navigate(Screen.STATS) })
                     Screen.ROUTES -> RoutesScreen(state, viewModel::selectServer, viewModel::testServers, viewModel::refreshSubscriptions, { viewModel.clearImportError(); showImport = true }, viewModel::toggleFavorite, viewModel::cancelPingTest)
                     Screen.STATS -> StatsScreen(state)
                     Screen.SETTINGS -> SettingsHub(state, viewModel, openVpnSettings)
@@ -250,7 +252,7 @@ private fun PulseBackdrop(modifier: Modifier = Modifier, animated: Boolean = tru
 @Composable
 private fun PulseNavigation(current: Screen, navigate: (Screen) -> Unit) {
     Row(
-        Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 20.dp, vertical = 8.dp)
+        Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 6.dp)
             .clip(RoundedCornerShape(26.dp)).background(MaterialTheme.colorScheme.surface)
             .border(1.dp, MaterialTheme.colorScheme.outline.copy(.16f), RoundedCornerShape(26.dp))
             .padding(6.dp),
@@ -267,7 +269,7 @@ private fun PulseNavigation(current: Screen, navigate: (Screen) -> Unit) {
                 Modifier.weight(1f).clip(RoundedCornerShape(20.dp))
                     .background(if (selected) MaterialTheme.colorScheme.primary.copy(.12f) else Color.Transparent)
                     .selectable(selected = selected, role = Role.Tab, onClick = { navigate(screen) })
-                    .padding(vertical = 10.dp),
+                    .padding(vertical = 8.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
@@ -290,6 +292,8 @@ private fun HomeScreen(
     selectServer: (VpnServer) -> Unit,
     refreshProfile: () -> Unit,
     testPings: () -> Unit,
+    cancelPings: () -> Unit,
+    stats: () -> Unit,
 ) {
     val selected = state.servers.firstOrNull(VpnServer::selected) ?: state.servers.firstOrNull()
     var subscriptionExpanded by rememberSaveable(state.selectedProfile?.id, state.options.bool("compact_card")) { mutableStateOf(!state.options.bool("compact_card")) }
@@ -311,7 +315,7 @@ private fun HomeScreen(
             Image(
                 painter = painterResource(R.drawable.pulse_app_icon),
                 contentDescription = "Pulse VPN",
-                modifier = Modifier.size(44.dp).clip(RoundedCornerShape(14.dp)),
+                modifier = Modifier.size(36.dp).clip(RoundedCornerShape(12.dp)),
             )
             Spacer(Modifier.width(11.dp))
             Text(
@@ -333,47 +337,9 @@ private fun HomeScreen(
             }
         }
 
-        Spacer(Modifier.height(16.dp))
-        AnimatedContent(
-            targetState = state.vpnStatus to (state.selectedProfile != null),
-            label = "connection-title",
-        ) { (status, configured) ->
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    when {
-                        !configured -> "Нужен профиль"
-                        status == Status.Started -> "Подключено"
-                        status == Status.Starting -> "Подключаем"
-                        status == Status.Stopping -> "Завершаем"
-                        else -> "Не подключено"
-                    },
-                    style = MaterialTheme.typography.headlineSmall,
-                )
-                Spacer(Modifier.height(7.dp))
-                Text(
-                    when {
-                        !configured -> "Добавьте ссылку или отсканируйте QR"
-                        status == Status.Started -> if (state.settingsPending) "VPN работает с предыдущими настройками" else if (state.routingMode == "direct") "Трафик идёт напрямую" else "VPN активен · ${perAppLabel(state)}"
-                        status == Status.Starting -> "Настраиваем безопасный туннель"
-                        else -> "${routingLabel(state.routingMode)} · ${when (state.dnsMode) { "local" -> "DNS из профиля"; "cloudflare" -> "Cloudflare DNS"; "google" -> "Google DNS"; "quad9" -> "Quad9 DNS"; else -> "AdGuard DNS" }}"
-                    },
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 12.sp,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                )
-            }
-        }
-        PulseConnectButton(
-            status = state.vpnStatus,
-            configured = state.selectedProfile != null,
-            animated = state.liveEffects,
-            haptics = state.options.bool("haptics"),
-            onClick = when {
-                state.selectedProfile == null -> addProfile
-                state.vpnStatus == Status.Started || state.vpnStatus == Status.Starting -> disconnect
-                else -> connect
-            },
-        )
+        Spacer(Modifier.height(18.dp))
+        ConnectionCard(state, connect, disconnect, addProfile, routes, stats)
+        Spacer(Modifier.height(12.dp))
         state.connectionError?.let { error ->
             Surface(color = MaterialTheme.colorScheme.errorContainer, shape = RoundedCornerShape(18.dp)) {
                 Column(Modifier.fillMaxWidth().padding(14.dp)) {
@@ -387,28 +353,9 @@ private fun HomeScreen(
             Spacer(Modifier.height(10.dp))
         }
         if (state.settingsPending) Text("Настройки сохранены для следующего подключения", color = MaterialTheme.colorScheme.primary, fontSize = 12.sp, modifier = Modifier.padding(bottom = 8.dp))
-        selected?.let { server ->
-            Row(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp))
-                    .background(MaterialTheme.colorScheme.secondaryContainer.copy(.35f))
-                    .clickable(onClick = routes).heightIn(min = 48.dp)
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(Icons.Outlined.Route, null, tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(20.dp))
-                Spacer(Modifier.width(10.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(server.tag, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(server.type.uppercase(), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp)
-                }
-                Text(server.delayMs?.let { "$it мс" } ?: "Сменить", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
-                Spacer(Modifier.width(6.dp))
-                Icon(Icons.Outlined.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
-            }
-        }
         state.selectedProfile?.let { profile ->
             Spacer(Modifier.height(12.dp))
-            SubscriptionHeaderCard(
+            SubscriptionCard(
                 profile = profile,
                 servers = state.servers,
                 openProfiles = profiles,
@@ -418,18 +365,8 @@ private fun HomeScreen(
                 toggleExpanded = { subscriptionExpanded = !subscriptionExpanded },
                 testPings = testPings,
                 testingPings = state.testingServers,
+                cancelPings = cancelPings,
             )
-        }
-        AnimatedVisibility(visible = state.vpnStatus == Status.Started) {
-            Row(
-                Modifier.fillMaxWidth().height(56.dp),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                CompactMetric("↓", formatSpeed(state.traffic.downloadPerSecond), "Загрузка")
-                Spacer(Modifier.width(34.dp))
-                CompactMetric("↑", formatSpeed(state.traffic.uploadPerSecond), "Отдача")
-            }
         }
         Spacer(Modifier.height(22.dp))
         if (state.selectedProfile == null) {
@@ -471,84 +408,6 @@ private fun HomeScreen(
 }
 
 @Composable
-private fun SubscriptionHeaderCard(
-    profile: VpnProfile,
-    servers: List<VpnServer>,
-    openProfiles: () -> Unit,
-    refresh: () -> Unit,
-    refreshing: Boolean,
-    expanded: Boolean,
-    toggleExpanded: () -> Unit,
-    testPings: () -> Unit,
-    testingPings: Boolean,
-) {
-    val colors = MaterialTheme.colorScheme
-    val context = LocalContext.current
-    val expires = epochSeconds(profile.expireAt)?.takeIf { it > 0 }
-    var clock by remember(expires) { mutableStateOf(System.currentTimeMillis()) }
-    var showDescription by rememberSaveable(profile.id) { mutableStateOf(false) }
-    LaunchedEffect(expires) {
-        while (expires != null) { clock = System.currentTimeMillis(); delay(30_000) }
-    }
-    val daysLeft = expires?.let { ((it * 1000 - clock).coerceAtLeast(0) + 86_399_999) / 86_400_000 }
-    val used = (profile.uploadBytes ?: 0L).coerceAtLeast(0) + (profile.downloadBytes ?: 0L).coerceAtLeast(0)
-    val total = profile.totalBytes?.takeIf { it > 0 }
-    val routeServers = servers.filterNot(VpnServer::isInfoMetadata)
-    val support = profile.providerSupportUrl ?: profile.providerTelegram
-    if (showDescription && profile.providerDescription != null) AlertDialog(
-        onDismissRequest = { showDescription = false },
-        title = { Text("Сообщение провайдера") },
-        text = { SelectionContainer { Text(profile.providerDescription, modifier = Modifier.verticalScroll(rememberScrollState()), lineHeight = 23.sp) } },
-        confirmButton = { TextButton(onClick = { showDescription = false }) { Text("Понятно") } },
-    )
-    Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp))
-            .background(Brush.linearGradient(listOf(colors.primaryContainer.copy(.50f), colors.surface, colors.secondaryContainer.copy(.24f))))
-            .border(1.dp, colors.primary.copy(.22f), RoundedCornerShape(24.dp)).padding(14.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            PulseMark(32.dp)
-            Spacer(Modifier.width(10.dp))
-            Column(Modifier.weight(1f).clickable(onClick = openProfiles)) {
-                Text("ВАША ПОДПИСКА", color = colors.primary, fontSize = 9.sp, fontWeight = FontWeight.Bold)
-                Text(displayProfileName(profile), fontSize = 17.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            }
-            IconButton(onClick = toggleExpanded) {
-                Icon(if (expanded) Icons.Outlined.KeyboardArrowUp else Icons.Outlined.KeyboardArrowDown, if (expanded) "Свернуть подписку" else "Развернуть подписку")
-            }
-        }
-        Spacer(Modifier.height(10.dp))
-        Text(
-            listOf(when { daysLeft == null -> "Срок не указан"; daysLeft == 0L -> "Срок истёк"; else -> "Ещё $daysLeft дн." },
-                "${routeServers.size} серверов", total?.let { "Осталось ${formatBytes((it - used).coerceAtLeast(0))}" } ?: "Без лимита").joinToString(" · "),
-            color = if (daysLeft == 0L || total != null && used >= total) colors.error else colors.onSurfaceVariant,
-            fontSize = 12.sp,
-        )
-        profile.providerDescription?.takeIf(String::isNotBlank)?.let { description ->
-            Text(description, Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable { showDescription = true }.padding(vertical = 8.dp),
-                color = colors.onSurface, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, lineHeight = 18.sp)
-        }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            ActionTile(Icons.Outlined.Refresh, "Обновить", Modifier.weight(1f), enabled = profile.sourceUrl != null && !refreshing, loading = refreshing, onClick = refresh)
-            ActionTile(Icons.Outlined.Speed, "Пинг", Modifier.weight(1f), enabled = routeServers.isNotEmpty() && !testingPings, loading = testingPings, onClick = testPings)
-        }
-        AnimatedVisibility(expanded) {
-            Column(Modifier.padding(top = 8.dp)) {
-                if (support != null || profile.providerWebsite != null) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    if (support != null) TextButton(onClick = { openExternal(context, support) }) { Text("Поддержка") }
-                    if (profile.providerWebsite != null) TextButton(onClick = { openExternal(context, profile.providerWebsite) }) { Text("Кабинет") }
-                }
-                if (total != null) {
-                    androidx.compose.material3.LinearProgressIndicator(progress = { (used.toFloat() / total).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth(), color = if (used >= total) colors.error else colors.primary)
-                    Text("Использовано ${formatBytes(used)} из ${formatBytes(total)}", color = colors.onSurfaceVariant, fontSize = 11.sp, modifier = Modifier.padding(top = 4.dp))
-                }
-                Text("Обновлено ${DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(profile.updatedAt))}", color = colors.onSurfaceVariant, fontSize = 11.sp, modifier = Modifier.padding(top = 5.dp))
-            }
-        }
-    }
-}
-
-@Composable
 private fun ActionTile(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     label: String,
@@ -559,7 +418,7 @@ private fun ActionTile(
 ) {
     val colors = MaterialTheme.colorScheme
     Row(
-        modifier.heightIn(min = 48.dp).clip(RoundedCornerShape(16.dp))
+        modifier.heightIn(min = 48.dp).clip(RoundedCornerShape(14.dp))
             .background(colors.primary.copy(if (enabled) .10f else .04f))
             .border(1.dp, colors.primary.copy(if (enabled) .16f else .06f), RoundedCornerShape(16.dp))
             .clickable(enabled = enabled && !loading, role = Role.Button, onClick = onClick)
@@ -575,7 +434,7 @@ private fun ActionTile(
 
 private fun displayProfileName(profile: VpnProfile): String = profile.name
 private fun epochSeconds(value: Long?): Long? = value?.let { if (it > 100_000_000_000L) it / 1000L else it }
-private fun openExternal(context: android.content.Context, link: String) {
+internal fun openExternal(context: android.content.Context, link: String) {
     val uri = runCatching { URI(link) }.getOrNull() ?: return
     if (uri.scheme?.lowercase() !in setOf("http", "https") || uri.host.isNullOrBlank()) return
     runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, AndroidUri.parse(link))) }
@@ -611,7 +470,7 @@ private fun HomeServerRow(server: VpnServer, select: (VpnServer) -> Unit) {
     }
 }
 
-private fun countryFlag(tag: String): String {
+internal fun countryFlag(tag: String): String {
     val normalized = tag.lowercase()
     return when {
         "france" in normalized || "франц" in normalized -> "🇫🇷"
@@ -639,57 +498,6 @@ private fun CompactMetric(icon: String, value: String, label: String) {
         Column {
             Text(value, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
             Text(label, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .4f), fontSize = 10.sp)
-        }
-    }
-}
-
-@Composable
-private fun PulseConnectButton(status: Status, configured: Boolean, animated: Boolean, haptics: Boolean = true, onClick: () -> Unit) {
-    val colors = MaterialTheme.colorScheme
-    val active = status == Status.Started
-    val moving = status == Status.Starting || status == Status.Stopping
-    val accent = if (active) colors.secondary else colors.primary
-    val pulse = if (animated && (active || moving)) {
-        val transition = rememberInfiniteTransition(label = "connection-breath")
-        val value by transition.animateFloat(0f, 1f, infiniteRepeatable(tween(2200), RepeatMode.Reverse), label = "connection-glow")
-        value
-    } else 0f
-    val interaction = remember { MutableInteractionSource() }
-    val pressed by interaction.collectIsPressedAsState()
-    val scale by animateFloatAsState(if (pressed) .96f else 1f, tween(180), label = "connection-press")
-    val haptic = LocalHapticFeedback.current
-    val label = when {
-        status == Status.Starting -> "Отменить"
-        status == Status.Stopping -> "Завершаем…"
-        active -> "Отключить"
-        configured -> "Подключить"
-        else -> "Добавить подписку"
-    }
-    val largeText = androidx.compose.ui.platform.LocalDensity.current.fontScale > 1.3f
-    val compact = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp < 700 || largeText
-    val buttonSize = if (compact) 124.dp else 138.dp
-    val controlShape = if (largeText) RoundedCornerShape(28.dp) else CircleShape
-    Box(Modifier.fillMaxWidth().height(if (compact) 152.dp else 174.dp), contentAlignment = Alignment.Center) {
-        if (!largeText) Canvas(Modifier.size(if (compact) 148.dp else 170.dp)) {
-            drawCircle(Brush.radialGradient(listOf(accent.copy(.18f + pulse * .07f), Color.Transparent)))
-            drawCircle(accent.copy(.10f), radius = size.minDimension * .48f, style = Stroke(1.dp.toPx()))
-            drawCircle(accent.copy(.25f + pulse * .12f), radius = size.minDimension * (.40f + pulse * .018f), style = Stroke(1.dp.toPx()))
-        }
-        Column(
-            (if (largeText) Modifier.widthIn(max = 300.dp).fillMaxWidth().heightIn(min = 124.dp) else Modifier.size(buttonSize)).graphicsLayer { scaleX = scale; scaleY = scale }
-                .clip(controlShape)
-                .background(Brush.linearGradient(listOf(colors.primaryContainer, colors.surface)))
-                .border(1.5.dp, accent.copy(.7f), controlShape)
-                .clickable(enabled = status != Status.Stopping, role = Role.Button, interactionSource = interaction, indication = null) {
-                    if (haptics) haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onClick()
-                },
-            horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
-        ) {
-            if (moving) CircularProgressIndicator(Modifier.size(36.dp), color = accent, strokeWidth = 2.dp)
-            else Icon(if (configured) Icons.Outlined.PowerSettingsNew else Icons.Outlined.Add, null, Modifier.size(40.dp), tint = accent)
-            Spacer(Modifier.height(14.dp))
-            Text(label, modifier = Modifier.padding(horizontal = 12.dp), color = colors.onSurface, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, textAlign = androidx.compose.ui.text.style.TextAlign.Center, maxLines = 2)
         }
     }
 }
@@ -1298,8 +1106,8 @@ private fun perAppLabel(state: PulseUiState) = when (state.perAppMode) {
     else -> "Все приложения"
 }
 
-private fun formatSpeed(bytes: Long): String = "${formatBytes(bytes)}/с"
-private fun formatBytes(bytes: Long): String = when {
+internal fun formatSpeed(bytes: Long): String = "${formatBytes(bytes)}/с"
+internal fun formatBytes(bytes: Long): String = when {
     bytes >= 1_073_741_824 -> "%.2f ГБ".format(bytes / 1_073_741_824.0)
     bytes >= 1_048_576 -> "%.1f МБ".format(bytes / 1_048_576.0)
     bytes >= 1024 -> "%.0f КБ".format(bytes / 1024.0)

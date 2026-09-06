@@ -59,6 +59,7 @@ class VpnController(context: Context) : ServiceConnection.Callback, CommandClien
 
     override fun onServiceStatusChanged(status: Status) {
         _status.value = status
+        if (status == Status.Stopped) { _traffic.value = TrafficSnapshot(); _delays.value = emptyMap() }
         if (status == Status.Started) commandClient.connect() else commandClient.disconnect()
     }
 

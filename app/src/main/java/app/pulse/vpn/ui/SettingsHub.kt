@@ -119,6 +119,7 @@ internal fun SettingsHub(state: PulseUiState, viewModel: PulseViewModel, openVpn
                 trailingIcon = { if (query.isNotBlank()) IconButton(onClick = { query = "" }) { Icon(Icons.Outlined.Close, "Очистить поиск") } })
         }
         if (query.isBlank()) item {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 listOf("routing" to "РЕЖИМ VPN", "dns" to "DNS").forEach { (key, label) ->
                     val entry = all.first { it.key == key }
@@ -131,6 +132,12 @@ internal fun SettingsHub(state: PulseUiState, viewModel: PulseViewModel, openVpn
                             fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 5.dp), maxLines = 2, overflow = TextOverflow.Ellipsis)
                     }
                 }
+            }
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("DNS", "Пинг", "Цветовая тема", "MTU", "Приватность").forEach { shortcut ->
+                    SuggestionChip(onClick = { query = shortcut }, label = { Text(shortcut, fontSize = 12.sp) })
+                }
+            }
             }
         }
         if (state.settingsPending) item {

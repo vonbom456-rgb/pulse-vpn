@@ -45,6 +45,7 @@ data class PulseUiState(
     val servers: List<VpnServer> = emptyList(),
     val pingHistory: Map<String, List<Int>> = emptyMap(),
     val vpnStatus: Status = Status.Stopped,
+    val connectedSinceElapsedMs: Long? = null,
     val traffic: TrafficSnapshot = TrafficSnapshot(),
     val importing: Boolean = false,
     val importError: String? = null,
@@ -91,7 +92,9 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
                 System.currentTimeMillis() - selected.updatedAt >= SettingsManager.advanced.number("refresh_hours") * 3_600_000L &&
                 refreshNetworkAllowed()) updateProfile(selected).join()
         }
-        viewModelScope.launch { vpn.status.collect { value -> _state.update { it.copy(vpnStatus = value) } } }
+        viewModelScope.launch { vpn.status.collect { value -> _state.update {
+            it.copy(vpnStatus = value, connectedSinceElapsedMs = if (value == Status.Started) it.connectedSinceElapsedMs ?: android.os.SystemClock.elapsedRealtime() else null)
+        } } }
         viewModelScope.launch { vpn.traffic.collect { value -> _state.update { it.copy(traffic = value) } } }
         viewModelScope.launch { vpn.delays.collect { values ->
             _state.update { current -> current.copy(servers = current.servers.map { it.copy(delayMs = values[it.tag] ?: it.delayMs) }) }
@@ -179,7 +182,11 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
         _state.update { it.copy(importing = true) }
         try {
             when (val result = repository.update(profile)) {
-                is ImportResult.Success -> { reloadInternal(); showMessage("Подписка обновлена") }
+                is ImportResult.Success -> {
+                    reloadInternal()
+                    _state.update { it.copy(settingsPending = it.settingsPending || (it.selectedProfile?.id == profile.id && it.vpnStatus != Status.Stopped)) }
+                    showMessage("Подписка обновлена")
+                }
                 is ImportResult.Error -> showMessage(result.message)
             }
         } finally {
@@ -215,10 +222,18 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
 
     fun selectServer(server: VpnServer) = viewModelScope.launch {
         if (server.isInfoMetadata()) return@launch
+        if (_state.value.importing || _state.value.vpnStatus in listOf(Status.Starting, Status.Stopping)) return@launch showMessage("Дождитесь завершения текущей операции")
         val profile = _state.value.selectedProfile ?: return@launch
+        if (_state.value.servers.none { it.tag == server.tag }) return@launch
+        if (_state.value.vpnStatus == Status.Started && _state.value.settingsPending) return@launch showMessage("Сначала примените изменения и переподключитесь в настройках")
+        val previous = _state.value.servers.firstOrNull(VpnServer::selected)
         repository.selectServer(profile, server)
+        if (_state.value.selectedProfile?.id != profile.id) return@launch
+        if (_state.value.vpnStatus == Status.Started && withContext(Dispatchers.IO) { vpn.select("Proxy", server.tag) }.isFailure) {
+            previous?.let { repository.selectServer(profile, it) }
+            return@launch
+        }
         _state.update { current -> current.copy(servers = current.servers.map { it.copy(selected = it.tag == server.tag) }) }
-        if (_state.value.vpnStatus == Status.Started) vpn.select("Proxy", server.tag)
         showMessage("Маршрут: ${server.tag}")
     }
 
@@ -226,6 +241,8 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
         if (pingJob?.isActive == true) return
         pingJob = viewModelScope.launch {
         if (_state.value.testingServers || _state.value.importing) return@launch
+        if (_state.value.vpnStatus in listOf(Status.Starting, Status.Stopping)) return@launch
+        if (_state.value.vpnStatus == Status.Started && _state.value.settingsPending) return@launch showMessage("Примените изменения VPN перед проверкой серверов")
         val owner = _state.value.selectedProfile ?: return@launch
         val snapshot = _state.value.servers.filterNot(VpnServer::isInfoMetadata)
         if (snapshot.isEmpty()) return@launch
@@ -307,6 +324,7 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
 
     fun startVpn() {
         if (connectionJob?.isActive == true) return
+        if (_state.value.importing) return showMessage("Дождитесь завершения импорта")
         if (_state.value.selectedProfile == null) return showMessage("Сначала добавьте подписку")
         if (_state.value.servers.isEmpty()) return connectionFailed("В подписке нет VPN-серверов. Обновите её или выберите другой профиль.")
         if (_state.value.perAppMode == SettingsManager.Keys.PER_APP_PROXY_INCLUDE && _state.value.selectedApps.isEmpty())
@@ -327,7 +345,8 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun stopVpn() { connectionJob?.cancel(); connectionJob = null; vpn.stop(); _state.update { it.copy(connectionError = null) } }
+    fun stopVpn() { reconnectJob?.cancel(); reconnectJob = null; stopForRestart() }
+    private fun stopForRestart() { connectionJob?.cancel(); connectionJob = null; vpn.stop(); _state.update { it.copy(connectionError = null) } }
 
     fun setDarkTheme(value: Boolean) {
         SettingsManager.darkTheme = value
@@ -367,14 +386,16 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
         if (remote.isEmpty()) return@launch showMessage("Нет удалённых подписок для обновления")
         _state.update { it.copy(importing = true) }
         var updated = 0
+        var activeUpdated = false
         try {
             remote.forEach { profile ->
                 when (repository.update(profile)) {
-                    is ImportResult.Success -> updated++
+                    is ImportResult.Success -> { updated++; if (profile.id == _state.value.selectedProfile?.id) activeUpdated = true }
                     is ImportResult.Error -> Unit
                 }
             }
             reloadInternal()
+            if (activeUpdated) _state.update { it.copy(settingsPending = it.settingsPending || it.vpnStatus != Status.Stopped) }
             showMessage("Обновлено подписок: $updated из ${remote.size}")
         } finally {
             _state.update { it.copy(importing = false) }
@@ -457,7 +478,7 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
     fun reconnect() {
         if (reconnectJob?.isActive == true) return
         reconnectJob = viewModelScope.launch {
-        stopVpn()
+        stopForRestart()
         if (withTimeoutOrNull(10_000) { vpn.status.first { it == Status.Stopped } } != null) startVpn()
         else connectionFailed("VPN ещё завершается. Повторите подключение через несколько секунд.")
         }

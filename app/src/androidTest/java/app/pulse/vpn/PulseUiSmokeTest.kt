@@ -73,6 +73,11 @@ class PulseUiSmokeTest {
         snapshot("02-provider-description")
         compose.onNodeWithText("Понятно").performClick()
         snapshot("03-subscription-card")
+        compose.onNodeWithContentDescription("Сменить сервер").performScrollTo().performClick()
+        compose.onNodeWithText("Быстрый выбор").assertIsDisplayed()
+        snapshot("03b-quick-server-picker")
+        compose.onNodeWithTag("quick-server:Netherlands").performClick()
+        compose.waitUntil(5_000) { model.state.value.servers.any { it.tag == "Netherlands" && it.selected } }
         compose.onNodeWithText("Настройки").performClick()
         snapshot("04-settings-pulse")
         compose.onNodeWithText("DNS и сеть").performScrollTo().performClick()

@@ -70,7 +70,7 @@ class SubscriptionImporter(
     private fun fetchCompatible(url: String): Fetched {
         val identity = identityProvider()
         val timestamp = System.currentTimeMillis() / 1000
-        val pulseAgent = "PulseVPN/0.6.0 (Android; sing-box)"
+        val pulseAgent = "PulseVPN/${app.pulse.vpn.BuildConfig.VERSION_NAME} (Android; sing-box)"
         val agents = if (url.contains("/redirect/auto", ignoreCase = true)) {
             listOf("Happ/4.6.0/android/$timestamp", pulseAgent, "sing-box/v1.13.15")
         } else {
@@ -100,7 +100,7 @@ class SubscriptionImporter(
                 if (identity.deviceOs.isNotBlank()) header("X-Device-OS", identity.deviceOs)
                 if (identity.osVersion.isNotBlank()) header("X-Ver-OS", identity.osVersion)
                 if (identity.deviceModel.isNotBlank()) header("X-Device-Model", identity.deviceModel)
-                header("X-App-Version", "0.6.0")
+                header("X-App-Version", app.pulse.vpn.BuildConfig.VERSION_NAME.removeSuffix("-native"))
             }
             .build()
         client.newCall(request).execute().use { response ->
