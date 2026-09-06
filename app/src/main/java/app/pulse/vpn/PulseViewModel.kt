@@ -146,6 +146,8 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
             it.copy(
                 profiles = profiles,
                 selectedProfile = selected,
+                connectionError = if (selected?.issue?.blocksConnection == true) null else it.connectionError,
+                settingsPending = it.settingsPending && selected?.issue?.blocksConnection != true,
                 servers = servers,
                 pingHistory = history,
                 favorites = selected?.let(repository::favorites).orEmpty(),
@@ -166,6 +168,8 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
                 _state.update {
                     it.copy(
                         importing = false,
+                        connectionError = null,
+                        settingsPending = false,
                         importCompleted = it.importCompleted + 1,
                         screen = Screen.HOME,
                         message = result.profile.issue?.let { issue -> "Подписка сохранена · ${issue.title}" } ?: "Подписка добавлена · $count серверов",

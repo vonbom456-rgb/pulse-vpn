@@ -126,25 +126,6 @@ class PulseUiSmokeTest {
         compose.runOnIdle { ViewModelProvider(compose.activity)[PulseViewModel::class.java].navigate(Screen.HOME) }
         compose.onNodeWithText("Повторить").performScrollTo().assertIsDisplayed()
         snapshot("09-recovery")
-        val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
-        fun shell(command: String) { automation.executeShellCommand(command).use { android.os.ParcelFileDescriptor.AutoCloseInputStream(it).readBytes() } }
-        try {
-            shell("wm size 720x1280")
-            shell("wm density 320")
-            shell("settings put system font_scale 1.5")
-            compose.activityRule.scenario.recreate()
-            compose.waitForIdle()
-            android.os.SystemClock.sleep(800)
-            snapshot("10-small-large-font-home")
-            compose.runOnIdle { ViewModelProvider(compose.activity)[PulseViewModel::class.java].navigate(Screen.SETTINGS) }
-            compose.onNodeWithText("Поиск настроек").assertIsDisplayed()
-            snapshot("11-small-large-font-settings")
-        } finally {
-            shell("settings put system font_scale 1.0")
-            shell("wm size reset")
-            shell("wm density reset")
-        }
-        compose.activityRule.scenario.recreate()
         compose.runOnIdle {
             model = ViewModelProvider(compose.activity)[PulseViewModel::class.java]
             model.setDarkTheme(true)
@@ -163,10 +144,31 @@ class PulseUiSmokeTest {
         compose.onNodeWithText("❌ Лимит устройств: удалите старое устройство").assertIsDisplayed()
         compose.onNodeWithText("Подключить").assertDoesNotExist()
         compose.onNodeWithText("СЕРВЕРЫ").assertDoesNotExist()
+        compose.onNodeWithText("Тестовое сообщение: проверьте интернет или смените сервер.").assertDoesNotExist()
         snapshot("12-unavailable-subscription")
         compose.onNodeWithContentDescription("Свернуть подписку").performScrollTo().performClick()
         compose.onNodeWithText("❌ Лимит устройств: удалите старое устройство").assertDoesNotExist()
         compose.onNodeWithText("Лимит устройств").assertIsDisplayed()
         snapshot("13-collapsed-unavailable-subscription")
+        compose.onNodeWithContentDescription("Развернуть подписку").performClick()
+        val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+        fun shell(command: String) { automation.executeShellCommand(command).use { android.os.ParcelFileDescriptor.AutoCloseInputStream(it).readBytes() } }
+        try {
+            shell("wm size 720x1280")
+            shell("wm density 320")
+            shell("settings put system font_scale 1.5")
+            compose.activityRule.scenario.recreate()
+            compose.waitForIdle()
+            android.os.SystemClock.sleep(800)
+            snapshot("10-small-large-font-home")
+            compose.runOnIdle { ViewModelProvider(compose.activity)[PulseViewModel::class.java].navigate(Screen.SETTINGS) }
+            compose.onNodeWithText("Поиск настроек").assertIsDisplayed()
+            snapshot("11-small-large-font-settings")
+        } finally {
+            shell("settings put system font_scale 1.0")
+            shell("wm size reset")
+            shell("wm density reset")
+        }
+
     }
 }
