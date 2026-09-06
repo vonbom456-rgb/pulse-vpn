@@ -52,8 +52,8 @@ class ProfileRepository(
             // Keep the provider response untouched as the source. Runtime settings are
             // applied to using_config.json and can therefore be changed without losing
             // the provider's routing or DNS rules on the next refresh.
-            File(directory, SOURCE_CONFIG).writeText(imported.config)
-            File(directory, "profile.json").writeText(json.encodeToString(profile))
+            File(directory, SOURCE_CONFIG).writeAtomicText(imported.config)
+            File(directory, "profile.json").writeAtomicText(json.encodeToString(profile))
             writeEffectiveConfig(profile)
             select(profile)
             ImportResult.Success(profile)
@@ -76,8 +76,8 @@ class ProfileRepository(
                     providerWebsite = imported.providerWebsite,
                     providerSupportUrl = imported.providerSupportUrl,
                 )
-                File(directory, SOURCE_CONFIG).writeText(imported.config)
-                File(directory, "profile.json").writeText(json.encodeToString(updated))
+                File(directory, SOURCE_CONFIG).writeAtomicText(imported.config)
+                File(directory, "profile.json").writeAtomicText(json.encodeToString(updated))
                 writeEffectiveConfig(updated)
                 if (selectedId() == updated.id) select(updated)
                 ImportResult.Success(updated)
@@ -91,7 +91,7 @@ class ProfileRepository(
                 val file = File(directory, "profile.json")
                 val loaded = json.decodeFromString<VpnProfile>(file.readText())
                 val fixed = loaded.copy(expireAt = normalizeEpoch(loaded.expireAt))
-                if (fixed.expireAt != loaded.expireAt) file.writeText(json.encodeToString(fixed))
+                if (fixed.expireAt != loaded.expireAt) file.writeAtomicText(json.encodeToString(fixed))
                 fixed
             }.getOrNull()
         }.sortedByDescending(VpnProfile::updatedAt)
@@ -170,7 +170,7 @@ class ProfileRepository(
                     }
                     JsonObject(item)
                 })
-                file.writeText(json.encodeToString(JsonObject.serializer(), JsonObject(rootObject)))
+                file.writeAtomicText(json.encodeToString(JsonObject.serializer(), JsonObject(rootObject)))
                 if (selectedId() == profile.id) ProfileManager.select(profile.name, file)
             }
         }
@@ -202,6 +202,7 @@ class ProfileRepository(
         value("type") !in setOf("direct", "block", "dns", "selector", "urltest") &&
         !isProviderInfo() && !isProviderError()
 
+    @Synchronized
     private fun writeEffectiveConfig(profile: VpnProfile) {
         val base = readBaseConfig(profile) ?: return
         val sourceItems = base["outbounds"]?.jsonArray.orEmpty().filterIsInstance<JsonObject>()
@@ -247,7 +248,7 @@ class ProfileRepository(
         val sanitized = JsonObject(base + ("outbounds" to JsonArray(outbounds)))
         val effective = RuntimeSettings.apply(sanitized, selected, SettingsManager.routingMode, SettingsManager.dnsMode, SettingsManager.advanced)
         val file = runtimeConfigFile(profile)
-        file.writeText(json.encodeToString(JsonObject.serializer(), effective))
+        file.writeAtomicText(json.encodeToString(JsonObject.serializer(), effective))
         if (selectedId() == profile.id) ProfileManager.select(profile.name, file)
     }
 
@@ -255,7 +256,7 @@ class ProfileRepository(
         val source = sourceConfigFile(profile)
         val file = if (source.exists()) source else runtimeConfigFile(profile)
         val parsed = runCatching { json.parseToJsonElement(file.readText()).jsonObject }.getOrNull()
-        if (parsed != null && !source.exists()) source.writeText(json.encodeToString(JsonObject.serializer(), parsed))
+        if (parsed != null && !source.exists()) source.writeAtomicText(json.encodeToString(JsonObject.serializer(), parsed))
         return parsed
     }
 

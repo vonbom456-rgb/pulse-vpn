@@ -49,8 +49,13 @@ class PulseUiSmokeTest {
     }
 
     @Test fun importsDescriptionAndNavigatesEveryTheme() {
-        compose.runOnIdle { ViewModelProvider(compose.activity)[PulseViewModel::class.java].setLiveEffects(false) }
+        lateinit var model: PulseViewModel
+        compose.runOnIdle { model = ViewModelProvider(compose.activity)[PulseViewModel::class.java]; model.setLiveEffects(false) }
         compose.onNodeWithText("Добавить подписку").performClick()
+        compose.onNode(hasSetTextAction()).performTextInput("not-a-profile")
+        compose.onNodeWithText("Импортировать").performClick()
+        compose.waitUntil(15_000) { model.state.value.importError != null }
+        compose.onNode(hasSetTextAction()).assertTextContains("not-a-profile").performTextClearance()
         compose.onNode(hasSetTextAction()).performTextInput("""
             #profile-title: Pulse Demo — very long subscription name for accessibility and compact layout review
             #announce: Welcome to Pulse. Your subscription details stay here.
@@ -70,10 +75,17 @@ class PulseUiSmokeTest {
         snapshot("03-subscription-card")
         compose.onNodeWithText("Настройки").performClick()
         snapshot("04-settings-pulse")
+        compose.onNodeWithText("DNS и сеть").performScrollTo().performClick()
+        compose.onNodeWithText("Кэш DNS").performScrollTo().assertIsDisplayed()
+        snapshot("04b-dns-settings")
+        compose.onNodeWithText("Поиск настроек").performScrollTo()
+        compose.onNodeWithText("Поиск настроек").performTextInput("Цветовая тема")
         listOf("Ocean", "Ember", "Midnight", "Mono", "Из подписки", "Pulse").forEachIndexed { index, theme ->
             compose.onNodeWithText(theme, useUnmergedTree = true).performScrollTo().performClick()
             snapshot("theme-$index")
         }
+        compose.onNodeWithContentDescription("Очистить поиск").performClick()
+        compose.onNodeWithText("Поиск настроек").performTextInput("Тёмное оформление")
         compose.onNodeWithText("Тёмное оформление").performScrollTo().performClick()
         snapshot("05-light-settings")
         compose.onNodeWithText("Главная").performClick()
@@ -85,7 +97,6 @@ class PulseUiSmokeTest {
         compose.onNodeWithText("Избранные").performClick()
         compose.onNodeWithContentDescription("В избранном: Finland").assertIsDisplayed()
         compose.onNodeWithText("Настройки").performClick()
-        compose.onNodeWithText("Все параметры · поиск и расширенные настройки").performScrollTo().performClick()
         compose.onNodeWithText("Поиск настроек").performTextInput("MTU")
         compose.onNodeWithText("Размер пакета MTU").performClick()
         compose.onNodeWithText("1400").performClick()
@@ -106,7 +117,7 @@ class PulseUiSmokeTest {
             compose.waitForIdle()
             android.os.SystemClock.sleep(800)
             snapshot("10-small-large-font-home")
-            compose.runOnIdle { ViewModelProvider(compose.activity)[PulseViewModel::class.java].navigate(Screen.ADVANCED) }
+            compose.runOnIdle { ViewModelProvider(compose.activity)[PulseViewModel::class.java].navigate(Screen.SETTINGS) }
             compose.onNodeWithText("Поиск настроек").assertIsDisplayed()
             snapshot("11-small-large-font-settings")
         } finally {

@@ -27,6 +27,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Semaphore
@@ -35,7 +36,7 @@ import java.net.InetSocketAddress
 import java.net.InetAddress
 import java.net.Socket
 
-enum class Screen { HOME, ROUTES, STATS, SETTINGS, PROFILES, APPS, ADVANCED }
+enum class Screen { HOME, ROUTES, STATS, SETTINGS, PROFILES, APPS }
 
 data class PulseUiState(
     val screen: Screen = Screen.HOME,
@@ -46,6 +47,8 @@ data class PulseUiState(
     val vpnStatus: Status = Status.Stopped,
     val traffic: TrafficSnapshot = TrafficSnapshot(),
     val importing: Boolean = false,
+    val importError: String? = null,
+    val importCompleted: Int = 0,
     val testingServers: Boolean = false,
     val pingCompleted: Int = 0,
     val pingTotal: Int = 0,
@@ -74,6 +77,8 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = ProfileRepository(application)
     private val vpn = VpnController(application)
     private var connectionJob: kotlinx.coroutines.Job? = null
+    private var pingJob: kotlinx.coroutines.Job? = null
+    private var reconnectJob: kotlinx.coroutines.Job? = null
     private val _state = MutableStateFlow(PulseUiState())
     val state: StateFlow<PulseUiState> = _state.asStateFlow()
 
@@ -147,27 +152,30 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
     fun import(input: String) = viewModelScope.launch {
         if (_state.value.importing) return@launch
         // Сразу показываем состояние работы, чтобы сетевой импорт не выглядел зависшим.
-        _state.update { it.copy(importing = true, message = "Импортируем подписку…") }
+        _state.update { it.copy(importing = true, importError = null, message = "Импортируем подписку…") }
         try { when (val result = repository.importProfile(input)) {
             is ImportResult.Success -> {
+                cancelPingTest()
                 if (_state.value.vpnStatus != Status.Stopped) stopVpn()
                 val count = repository.servers(result.profile).size
                 reloadInternal()
                 _state.update {
                     it.copy(
                         importing = false,
+                        importCompleted = it.importCompleted + 1,
                         screen = Screen.HOME,
                         message = "Подписка добавлена · $count серверов",
                     )
                 }
             }
-            is ImportResult.Error -> _state.update { it.copy(importing = false, message = result.message) }
+            is ImportResult.Error -> _state.update { it.copy(importing = false, importError = result.message, message = result.message) }
         } } finally { _state.update { it.copy(importing = false) } }
     }
 
     fun updateProfile(profile: VpnProfile) = viewModelScope.launch {
         if (_state.value.importing) return@launch
         if (!refreshNetworkAllowed()) return@launch showMessage("Обновление разрешено только по Wi-Fi")
+        cancelPingTest()
         _state.update { it.copy(importing = true) }
         try {
             when (val result = repository.update(profile)) {
@@ -180,6 +188,7 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun selectProfile(profile: VpnProfile) = viewModelScope.launch {
+        cancelPingTest()
         if (_state.value.vpnStatus != Status.Stopped) stopVpn()
         repository.select(profile)
         repository.applyRoutingSettings(profile)
@@ -198,6 +207,7 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun deleteProfile(profile: VpnProfile) = viewModelScope.launch {
+        if (_state.value.selectedProfile?.id == profile.id) cancelPingTest()
         if (_state.value.selectedProfile?.id == profile.id) stopVpn()
         repository.delete(profile)
         reload()
@@ -212,7 +222,9 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
         showMessage("Маршрут: ${server.tag}")
     }
 
-    fun testServers() = viewModelScope.launch {
+    fun testServers() {
+        if (pingJob?.isActive == true) return
+        pingJob = viewModelScope.launch {
         if (_state.value.testingServers || _state.value.importing) return@launch
         val owner = _state.value.selectedProfile ?: return@launch
         val snapshot = _state.value.servers.filterNot(VpnServer::isInfoMetadata)
@@ -248,6 +260,7 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
                                     }
                                     probe() ?: if (options.bool("ping_retry")) run { delay(120); probe() } else null
                                 } else null
+                                ensureActive()
                                 _state.update { it.copy(pingCompleted = (it.pingCompleted + 1).coerceAtMost(it.pingTotal)) }
                                 server.copy(delayMs = latency)
                             }
@@ -256,7 +269,8 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
             // A profile can change while network probes are running.
-            if (_state.value.selectedProfile?.id != owner.id) return@launch
+            ensureActive()
+            if (_state.value.selectedProfile?.id != owner.id || _state.value.selectedProfile?.updatedAt != owner.updatedAt) return@launch
             val sorted = measured.sortedWith(compareBy<VpnServer> { it.delayMs == null }.thenBy { it.delayMs ?: Int.MAX_VALUE })
             val fastest = sorted.firstOrNull { it.delayMs != null }
             val autoSelect = SettingsManager.autoFastest && fastest != null
@@ -268,7 +282,7 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
             sorted.forEach { server -> history[server.tag] = (history[server.tag].orEmpty() + (server.delayMs ?: -1)).takeLast(20) }
             if (_state.value.options.bool("save_history")) withContext(Dispatchers.IO) { repository.savePingHistory(owner, history) }
             _state.update { current ->
-                if (current.selectedProfile?.id != owner.id) current else current.copy(
+                if (current.selectedProfile?.id != owner.id || current.selectedProfile.updatedAt != owner.updatedAt) current else current.copy(
                     servers = measured.map { it.copy(selected = it.tag == (if (autoSelect) fastest?.tag else current.servers.firstOrNull(VpnServer::selected)?.tag)) },
                     pingHistory = history,
                     pingCompleted = sorted.size,
@@ -280,8 +294,15 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
         } catch (_: Exception) {
             showMessage("Не удалось завершить проверку. Попробуйте ещё раз.")
         } finally {
-            _state.update { it.copy(testingServers = false) }
+            if (coroutineContext[kotlinx.coroutines.Job]?.isActive == true) _state.update { it.copy(testingServers = false) }
         }
+        }
+    }
+
+    fun cancelPingTest() {
+        pingJob?.cancel()
+        pingJob = null
+        _state.update { it.copy(testingServers = false, pingCompleted = 0, pingTotal = 0) }
     }
 
     fun startVpn() {
@@ -341,6 +362,7 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
     fun refreshSubscriptions() = viewModelScope.launch {
         if (_state.value.importing) return@launch
         if (!refreshNetworkAllowed()) return@launch showMessage("Обновление разрешено только по Wi-Fi")
+        cancelPingTest()
         val remote = _state.value.profiles.filter { it.sourceUrl != null }
         if (remote.isEmpty()) return@launch showMessage("Нет удалённых подписок для обновления")
         _state.update { it.copy(importing = true) }
@@ -412,6 +434,7 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun clearPingHistory() {
+        cancelPingTest()
         _state.value.selectedProfile?.let { repository.savePingHistory(it, emptyMap()) }
         _state.update { it.copy(pingHistory = emptyMap(), servers = it.servers.map { server -> server.copy(delayMs = null) }) }
     }
@@ -431,10 +454,13 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
         _state.update { it.copy(selectedApps = selected, settingsPending = it.vpnStatus != Status.Stopped) }
     }
 
-    fun reconnect() = viewModelScope.launch {
+    fun reconnect() {
+        if (reconnectJob?.isActive == true) return
+        reconnectJob = viewModelScope.launch {
         stopVpn()
         if (withTimeoutOrNull(10_000) { vpn.status.first { it == Status.Stopped } } != null) startVpn()
         else connectionFailed("VPN ещё завершается. Повторите подключение через несколько секунд.")
+        }
     }
 
     private fun refreshNetworkAllowed(): Boolean {
@@ -448,6 +474,7 @@ class PulseViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun clearMessage() = _state.update { it.copy(message = null) }
+    fun clearImportError() = _state.update { it.copy(importError = null) }
     private fun showMessage(value: String) {
         // INFO/provider metadata is never a route. Do not surface stale selections from
         // older profile files as a route notification.
