@@ -67,6 +67,9 @@ class PulseUiSmokeTest {
         """.trimIndent())
         compose.onNodeWithText("Импортировать").performClick()
         compose.waitUntil(15_000) { compose.onAllNodesWithText("ВАША ПОДПИСКА").fetchSemanticsNodes().isNotEmpty() }
+        compose.runOnIdle { model.clearMessage() }
+        compose.onNodeWithText("Обновить").assertIsDisplayed()
+        compose.onNodeWithText("Поддержка").assertIsDisplayed()
         snapshot("01-home-pulse")
         compose.onNodeWithText("Welcome to Pulse. Your subscription details stay here.").performScrollTo().assertIsDisplayed().performClick()
         compose.onNodeWithText("Сообщение провайдера").assertIsDisplayed()

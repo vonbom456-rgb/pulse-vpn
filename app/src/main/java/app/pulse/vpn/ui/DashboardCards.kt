@@ -55,7 +55,7 @@ internal fun ConnectionCard(state: PulseUiState, connect: () -> Unit, disconnect
         active -> "Подключено"
         state.vpnStatus == Status.Starting -> "Подключаем"
         state.vpnStatus == Status.Stopping -> "Завершаем"
-        else -> "Готов к подключению"
+        else -> "VPN отключён"
     }
     val label = when {
         !configured -> "Добавить подписку"
@@ -80,8 +80,8 @@ internal fun ConnectionCard(state: PulseUiState, connect: () -> Unit, disconnect
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(28.dp))
             .background(Brush.linearGradient(listOf(colors.primaryContainer.copy(.48f), colors.surface, colors.secondaryContainer.copy(.24f))))
-            .border(1.dp, colors.primary.copy(.22f), RoundedCornerShape(28.dp)).padding(18.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+            .border(1.dp, colors.primary.copy(.22f), RoundedCornerShape(28.dp)).padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(6.dp).clip(CircleShape).background(if (active) colors.secondary else colors.onSurfaceVariant))
@@ -95,16 +95,16 @@ internal fun ConnectionCard(state: PulseUiState, connect: () -> Unit, disconnect
             state.vpnStatus == Status.Starting -> "Запускаем VPN. Можно отменить."
             active && state.routingMode == "direct" -> "Режим напрямую: трафик без VPN"
             active -> "Туннель работает · " + when (state.perAppMode) { 1 -> "выбранные приложения"; 2 -> "с исключениями"; else -> "все приложения" }
-            else -> "Выберите сервер и нажмите кнопку"
+            else -> "Нажмите кнопку для подключения"
         }
         val text: @Composable (Modifier) -> Unit = { modifier ->
             Column(modifier, verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                Text(title, fontSize = 22.sp, lineHeight = 27.sp, fontWeight = FontWeight.SemiBold)
+                Text(title, fontSize = 20.sp, lineHeight = 25.sp, fontWeight = FontWeight.SemiBold)
                 Text(caption, fontSize = 12.sp, lineHeight = 17.sp, color = colors.onSurfaceVariant)
             }
         }
         val dial: @Composable () -> Unit = {
-            Box(Modifier.size(104.dp), contentAlignment = Alignment.Center) {
+            Box(Modifier.size(92.dp), contentAlignment = Alignment.Center) {
                 val pulse = if (state.liveEffects && active) {
                     val transition = rememberInfiniteTransition(label = "connected-glow")
                     val value by transition.animateFloat(.15f, .34f, infiniteRepeatable(tween(2200), RepeatMode.Reverse), label = "glow")
@@ -114,7 +114,7 @@ internal fun ConnectionCard(state: PulseUiState, connect: () -> Unit, disconnect
                     drawCircle(Brush.radialGradient(listOf(colors.primary.copy(pulse), Color.Transparent)))
                     drawCircle(colors.primary.copy(.24f), style = Stroke(1.dp.toPx()))
                 }
-                Box(Modifier.size(84.dp).clip(CircleShape)
+                Box(Modifier.size(76.dp).clip(CircleShape)
                     .background(Brush.linearGradient(listOf(if (active) colors.secondary else colors.primary, colors.primaryContainer)))
                     .border(1.dp, colors.primary.copy(.7f), CircleShape)
                     .clickable(enabled = state.vpnStatus != Status.Stopping && !state.importing, role = Role.Button, onClickLabel = label, onClick = action),
@@ -171,7 +171,7 @@ internal fun SubscriptionCard(profile: VpnProfile, servers: List<VpnServer>, ope
     val support = profile.providerSupportUrl ?: profile.providerTelegram
     val large = LocalDensity.current.fontScale > 1.3f
     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(colors.surface)
-        .border(1.dp, colors.outlineVariant.copy(.6f), RoundedCornerShape(24.dp)).padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        .border(1.dp, colors.outlineVariant.copy(.6f), RoundedCornerShape(24.dp)).padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(34.dp).clip(RoundedCornerShape(11.dp)).background(colors.primaryContainer), contentAlignment = Alignment.Center) {
                 Icon(Icons.Outlined.Layers, null, Modifier.size(20.dp), tint = colors.onPrimaryContainer)
@@ -182,23 +182,23 @@ internal fun SubscriptionCard(profile: VpnProfile, servers: List<VpnServer>, ope
             }
             IconButton(toggleExpanded) { Icon(if (expanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore, if (expanded) "Свернуть подписку" else "Развернуть подписку") }
         }
-        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(colors.surfaceContainerLow).padding(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(colors.surfaceContainerLow).padding(horizontal = 10.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             MiniReading("Срок подписки", when (usage.daysLeft) { null -> "Не указан"; 0L -> "Истёк"; else -> "${usage.daysLeft} дн." }, Modifier.weight(1f))
             MiniReading("Остаток трафика", usage.remaining?.let(::formatBytes) ?: if (profile.totalBytes == 0L) "Без лимита" else "Не указан", Modifier.weight(1f))
         }
         if (usage.daysLeft == 0L || usage.exhausted) Text(if (usage.exhausted) "Лимит трафика исчерпан" else "Проверьте продление у провайдера", fontSize = 12.sp, color = colors.error)
+        FlowRow(Modifier.fillMaxWidth(), maxItemsInEachRow = if (large) 2 else 4, horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            SubscriptionAction(Icons.Outlined.Refresh, "Обновить", Modifier.weight(1f), profile.sourceUrl != null && !refreshing, refreshing, refresh)
+            SubscriptionAction(if (testingPings) Icons.Outlined.Close else Icons.Outlined.Speed, if (testingPings) "Отмена" else "Пинг", Modifier.weight(1f), testingPings || servers.isNotEmpty() && !refreshing, false, if (testingPings) cancelPings else testPings)
+            SubscriptionAction(Icons.Outlined.Send, "Поддержка", Modifier.weight(1f), support != null, false) { support?.let { openExternal(context, it) } }
+            SubscriptionAction(Icons.Outlined.Language, "Кабинет", Modifier.weight(1f), profile.providerWebsite != null, false) { profile.providerWebsite?.let { openExternal(context, it) } }
+        }
         profile.providerDescription?.takeIf(String::isNotBlank)?.let { description ->
             Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).clip(RoundedCornerShape(10.dp)).clickable { descriptionOpen = true }.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.width(3.dp).height(28.dp).clip(CircleShape).background(colors.secondary))
                 Text(description, Modifier.weight(1f).padding(horizontal = 10.dp), fontSize = 12.sp, lineHeight = 17.sp, maxLines = if (expanded) 2 else 1, overflow = TextOverflow.Ellipsis)
                 Icon(Icons.Outlined.Info, null, Modifier.size(16.dp), tint = colors.onSurfaceVariant)
             }
-        }
-        FlowRow(Modifier.fillMaxWidth(), maxItemsInEachRow = if (large) 2 else 4, horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            SubscriptionAction(Icons.Outlined.Refresh, "Обновить", Modifier.weight(1f), profile.sourceUrl != null && !refreshing, refreshing, refresh)
-            SubscriptionAction(if (testingPings) Icons.Outlined.Close else Icons.Outlined.Speed, if (testingPings) "Отмена" else "Пинг", Modifier.weight(1f), testingPings || servers.isNotEmpty() && !refreshing, false, if (testingPings) cancelPings else testPings)
-            SubscriptionAction(Icons.Outlined.Send, "Поддержка", Modifier.weight(1f), support != null, false) { support?.let { openExternal(context, it) } }
-            SubscriptionAction(Icons.Outlined.Language, "Кабинет", Modifier.weight(1f), profile.providerWebsite != null, false) { profile.providerWebsite?.let { openExternal(context, it) } }
         }
         androidx.compose.animation.AnimatedVisibility(expanded) {
             Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
@@ -220,7 +220,7 @@ internal fun SubscriptionCard(profile: VpnProfile, servers: List<VpnServer>, ope
 @Composable private fun SubscriptionAction(icon: ImageVector, label: String, modifier: Modifier, enabled: Boolean, loading: Boolean, action: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     Column(modifier.clip(RoundedCornerShape(12.dp)).background(colors.primary.copy(if (enabled) .08f else .025f))
-        .clickable(enabled = enabled, role = Role.Button, onClick = action).heightIn(min = 58.dp).padding(horizontal = 2.dp, vertical = 9.dp),
+        .clickable(enabled = enabled, role = Role.Button, onClick = action).heightIn(min = 52.dp).padding(horizontal = 2.dp, vertical = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(5.dp)) {
         if (loading) CircularProgressIndicator(Modifier.size(19.dp), strokeWidth = 2.dp)
         else Icon(icon, null, Modifier.size(19.dp), tint = colors.primary.copy(if (enabled) 1f else .35f))

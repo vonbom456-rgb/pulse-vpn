@@ -337,9 +337,9 @@ private fun HomeScreen(
             }
         }
 
-        Spacer(Modifier.height(18.dp))
-        ConnectionCard(state, connect, disconnect, addProfile, routes, stats)
         Spacer(Modifier.height(12.dp))
+        ConnectionCard(state, connect, disconnect, addProfile, routes, stats)
+        Spacer(Modifier.height(2.dp))
         state.connectionError?.let { error ->
             Surface(color = MaterialTheme.colorScheme.errorContainer, shape = RoundedCornerShape(18.dp)) {
                 Column(Modifier.fillMaxWidth().padding(14.dp)) {

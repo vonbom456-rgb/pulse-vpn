@@ -89,9 +89,9 @@ class TunnelIntegrationTest {
                     SettingsManager.advanced = oldOptions
                     SettingsManager.routingMode = oldRouting
                     SettingsManager.dnsMode = oldDns
-                    SettingsManager.perAppProxyMode = oldMode
                     SettingsManager.setPerAppList(SettingsManager.Keys.PER_APP_PROXY_INCLUDE, oldInclude)
                     SettingsManager.setPerAppList(SettingsManager.Keys.PER_APP_PROXY_EXCLUDE, oldExclude)
+                    SettingsManager.perAppProxyMode = oldMode
                 }
             }
         }
