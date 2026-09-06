@@ -86,7 +86,7 @@ class PulseUiSmokeTest {
         }
         compose.onNodeWithContentDescription("Очистить поиск").performClick()
         compose.onNodeWithText("Поиск настроек").performTextInput("Тёмное оформление")
-        compose.onNodeWithText("Тёмное оформление").performScrollTo().performClick()
+        compose.onNode(hasText("Тёмное оформление") and isToggleable()).performScrollTo().performClick()
         snapshot("05-light-settings")
         compose.onNodeWithText("Главная").performClick()
         snapshot("06-light-home")
