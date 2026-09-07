@@ -116,6 +116,7 @@ class PulseUiSmokeTest {
         compose.onNodeWithText("Избранные").performClick()
         compose.onNodeWithContentDescription("В избранном: Finland").assertIsDisplayed()
         compose.onNodeWithText("Настройки").performClick()
+        compose.onNodeWithText("Поиск настроек").performScrollTo().assertTextContains("Тёмное оформление").performTextClearance()
         compose.onNodeWithText("Поиск настроек").performTextInput("MTU")
         compose.onNodeWithText("Размер пакета MTU").performClick()
         compose.onNodeWithText("1400").performClick()
@@ -162,7 +163,7 @@ class PulseUiSmokeTest {
             android.os.SystemClock.sleep(800)
             snapshot("10-small-large-font-home")
             compose.runOnIdle { ViewModelProvider(compose.activity)[PulseViewModel::class.java].navigate(Screen.SETTINGS) }
-            compose.onNodeWithText("Поиск настроек").assertIsDisplayed()
+            compose.onNodeWithText("Поиск настроек").performScrollTo().assertIsDisplayed()
             snapshot("11-small-large-font-settings")
         } finally {
             shell("settings put system font_scale 1.0")

@@ -1,6 +1,5 @@
 package app.pulse.vpn.ui
 
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
@@ -11,7 +10,11 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -186,14 +189,12 @@ fun PulseApp(
         containerColor = MaterialTheme.colorScheme.background,
         contentWindowInsets = WindowInsets(0),
         bottomBar = {
-            if (state.screen in setOf(Screen.HOME, Screen.ROUTES, Screen.SETTINGS)) {
-                PulseNavigation(state.screen, viewModel::navigate)
-            }
+            PulseNavigation(state.screen.navigationTab(), viewModel::navigate)
         },
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(bottom = padding.calculateBottomPadding())) {
             PulseBackdrop(Modifier.fillMaxSize(), animated = state.liveEffects)
-            AnimatedContent(targetState = state.screen, label = "screen") { screen ->
+            PulseScreenHost(state.screen, state.options.bool("ui_animations")) { screen ->
                 when (screen) {
                     Screen.HOME -> HomeScreen(state, requestConnect, viewModel::stopVpn, { showServerPicker = true }, { viewModel.navigate(Screen.PROFILES) }, { viewModel.clearImportError(); showImport = true }, viewModel::selectServer, { state.selectedProfile?.let(viewModel::updateProfile) }, viewModel::testServers, viewModel::cancelPingTest, { viewModel.navigate(Screen.STATS) })
                     Screen.ROUTES -> RoutesScreen(state, viewModel::selectServer, viewModel::testServers, viewModel::refreshSubscriptions, { viewModel.clearImportError(); showImport = true }, viewModel::toggleFavorite, viewModel::cancelPingTest)
@@ -205,8 +206,8 @@ fun PulseApp(
             }
             AnimatedVisibility(
                 visible = state.message != null,
-                enter = fadeIn() + scaleIn(initialScale = .96f),
-                exit = fadeOut(),
+                enter = if (state.options.bool("ui_animations")) fadeIn(tween(160)) + slideInVertically(tween(180)) { it / 4 } else EnterTransition.None,
+                exit = if (state.options.bool("ui_animations")) fadeOut(tween(100)) + slideOutVertically(tween(140)) { it / 4 } else ExitTransition.None,
                 modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp, start = 20.dp, end = 20.dp),
             ) {
                 state.message?.let { InlineBanner(it, viewModel::clearMessage) }
@@ -264,10 +265,12 @@ private fun PulseNavigation(current: Screen, navigate: (Screen) -> Unit) {
             Triple(Screen.SETTINGS, Icons.Outlined.Tune, "Настройки"),
         ).forEach { (screen, icon, label) ->
             val selected = current == screen
-            val color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+            val duration = if (LocalAdvancedOptions.current.bool("ui_animations")) 160 else 0
+            val color by animateColorAsState(if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant, tween(duration), label = "tab-color")
+            val background by animateColorAsState(if (selected) MaterialTheme.colorScheme.primary.copy(.12f) else Color.Transparent, tween(duration), label = "tab-background")
             Column(
                 Modifier.weight(1f).clip(RoundedCornerShape(20.dp))
-                    .background(if (selected) MaterialTheme.colorScheme.primary.copy(.12f) else Color.Transparent)
+                    .background(background)
                     .selectable(selected = selected, role = Role.Tab, onClick = { navigate(screen) })
                     .padding(vertical = 8.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -766,9 +769,9 @@ private fun ProfilesScreen(
         )
     }
     ScreenColumn {
-        ScreenHeader("VPN-профили", back, { IconButton(onClick = add) { Icon(Icons.Outlined.Add, null) } })
+        ScreenHeader("Подписки", back, { IconButton(onClick = add) { Icon(Icons.Outlined.Add, null) } })
         if (state.profiles.isEmpty()) {
-            EmptyCard(Icons.Outlined.Add, "Нет профилей", "Добавьте ссылку подписки или готовую конфигурацию.", "Добавить", add)
+            EmptyCard(Icons.Outlined.Add, "Нет подписок", "Добавьте ссылку подписки или готовую конфигурацию.", "Добавить", add)
         } else state.profiles.forEach { profile ->
             PremiumCard(onClick = { select(profile) }) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -918,7 +921,7 @@ private fun ImportDialog(loading: Boolean, error: String?, onDismiss: () -> Unit
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 Text(
-                    "Ссылка подписки, QR или конфигурация. Pulse автоматически определит формат.",
+                    "Вставьте ссылку или конфигурацию. Можно также отсканировать QR-код.",
                     color = MaterialTheme.colorScheme.onSurface.copy(.52f),
                     lineHeight = 20.sp,
                 )

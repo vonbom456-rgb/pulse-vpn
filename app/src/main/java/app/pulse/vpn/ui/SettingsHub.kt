@@ -1,6 +1,5 @@
 package app.pulse.vpn.ui
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -43,7 +42,7 @@ private data class SettingsEntry(
 private data class SettingsSection(val title: String, val hint: String, val icon: ImageVector)
 private val sections = listOf(
     SettingsSection("Подключение", "Режим VPN и приложения", Icons.Outlined.Route),
-    SettingsSection("DNS и сеть", "Провайдер DNS, кэш и адреса", Icons.Outlined.Language),
+    SettingsSection("DNS и сеть", "DNS-сервер, кэш и адреса", Icons.Outlined.Language),
     SettingsSection("Серверы и пинг", "Выбор маршрута и проверка", Icons.Outlined.Speed),
     SettingsSection("Подписки", "Профили и обновления", Icons.Outlined.Devices),
     SettingsSection("Оформление", "Темы, анимация и главный экран", Icons.Outlined.Palette),
@@ -64,13 +63,13 @@ private fun entries(state: PulseUiState, vm: PulseViewModel, openVpnSettings: ()
         SettingsEntry("auto_fastest", "Выбирать быстрый сервер", "Автоматический выбор после проверки задержки", "Серверы и пинг", state.autoFastest.toString(), toggle = true, change = { vm.setAutoFastest(it.toBoolean()) }),
         SettingsEntry("routes", "Список серверов", "Избранные, протоколы и подробности", "Серверы и пинг", action = { vm.navigate(Screen.ROUTES) }),
         SettingsEntry("stats", "Статистика сессии", "Скорость и переданный трафик", "Серверы и пинг", action = { vm.navigate(Screen.STATS) }),
-        SettingsEntry("profiles", "Управление профилями", "${state.profiles.size} профилей", "Подписки", action = { vm.navigate(Screen.PROFILES) }),
-        SettingsEntry("refresh_on_open", "Обновлять при открытии", "Получать актуальные серверы и описание", "Подписки", state.refreshOnOpen.toString(), toggle = true, change = { vm.setRefreshOnOpen(it.toBoolean()) }),
-        SettingsEntry("refresh", "Обновить подписки", if (state.importing) "Обновляем…" else "Запросить новые данные сейчас", "Подписки",
+        SettingsEntry("profiles", "Мои подписки", "${state.profiles.size} профилей", "Подписки", action = { vm.navigate(Screen.PROFILES) }),
+        SettingsEntry("refresh_on_open", "Обновлять при открытии", "Обновлять подписку при запуске приложения", "Подписки", state.refreshOnOpen.toString(), toggle = true, change = { vm.setRefreshOnOpen(it.toBoolean()) }),
+        SettingsEntry("refresh", "Обновить подписки", if (state.importing) "Обновляем…" else "Обновить серверы, срок и остаток трафика", "Подписки",
             enabled = !state.importing && state.profiles.any { it.sourceUrl != null }, action = { vm.refreshSubscriptions() }),
         SettingsEntry("theme", "Цветовая тема", "Фон, текст, карточки и кнопки", "Оформление", state.accentTheme,
             listOf("pulse" to "Pulse", "ocean" to "Ocean", "ember" to "Ember", "midnight" to "Midnight", "mono" to "Mono", "profile" to "Из подписки"), change = vm::setAccentTheme),
-        SettingsEntry("dark", "Тёмное оформление", "Светлая или тёмная палитра всех экранов", "Оформление", state.darkTheme.toString(), toggle = true, change = { vm.setDarkTheme(it.toBoolean()) }),
+        SettingsEntry("dark", "Тёмное оформление", "Тёмные цвета на всех экранах", "Оформление", state.darkTheme.toString(), toggle = true, change = { vm.setDarkTheme(it.toBoolean()) }),
         SettingsEntry("effects", "Живой фон", "Мягкое свечение и анимация подключения", "Оформление", state.liveEffects.toString(), toggle = true, change = { vm.setLiveEffects(it.toBoolean()) }),
     )
     return base + OptionCatalog.all.map { spec ->
@@ -106,7 +105,7 @@ internal fun SettingsHub(state: PulseUiState, viewModel: PulseViewModel, openVpn
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("Настройки", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-                    Text("${sections.size} разделов · ${all.size} параметров и действий", fontSize = 12.sp, color = colors.onSurfaceVariant)
+                    Text("Подключение и внешний вид", fontSize = 12.sp, color = colors.onSurfaceVariant)
                 }
                 Box(Modifier.size(44.dp).clip(RoundedCornerShape(14.dp)).background(colors.primaryContainer), contentAlignment = Alignment.Center) {
                     Icon(Icons.Outlined.Tune, null, tint = colors.onPrimaryContainer)
@@ -143,9 +142,9 @@ internal fun SettingsHub(state: PulseUiState, viewModel: PulseViewModel, openVpn
         if (state.settingsPending) item {
             Surface(color = colors.primaryContainer, shape = RoundedCornerShape(18.dp)) {
                 Column(Modifier.padding(14.dp)) {
-                    Text("Есть неприменённые изменения", fontWeight = FontWeight.SemiBold)
-                    Text("Текущий VPN продолжает работать. Новые параметры включатся после переподключения.", fontSize = 12.sp)
-                    Button(onClick = { viewModel.reconnect() }, enabled = state.vpnStatus !in listOf(Status.Starting, Status.Stopping), modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) { Text("Применить и переподключить") }
+                    Text("Нужно переподключиться", fontWeight = FontWeight.SemiBold)
+                    Text("Настройки сохранены. Переподключитесь, чтобы они заработали.", fontSize = 12.sp)
+                    Button(onClick = { viewModel.reconnect() }, enabled = state.vpnStatus !in listOf(Status.Starting, Status.Stopping), modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) { Text("Переподключиться") }
                 }
             }
         }
@@ -169,7 +168,7 @@ internal fun SettingsHub(state: PulseUiState, viewModel: PulseViewModel, openVpn
                         Text(groupEntries.size.toString(), color = colors.onSurfaceVariant, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 8.dp))
                         Icon(if (open) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore, if (open) "Свернуть ${section.title}" else "Развернуть ${section.title}", Modifier.size(20.dp))
                     }
-                    AnimatedVisibility(open) {
+                    PulseDisclosure(open) {
                         Column {
                             groupEntries.forEach { entry ->
                                 HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = colors.outlineVariant.copy(.45f))
@@ -222,7 +221,7 @@ internal fun SettingsHub(state: PulseUiState, viewModel: PulseViewModel, openVpn
         }
         if (query.isBlank()) item {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                TextButton(onClick = { confirm = "history" }) { Text("Очистить пинги", fontSize = 12.sp) }
+                TextButton(onClick = { confirm = "history" }) { Text("Очистить замеры", fontSize = 12.sp) }
                 TextButton(onClick = { confirm = "reset" }) { Text("Сброс параметров", fontSize = 12.sp) }
             }
             Text("Pulse VPN ${app.pulse.vpn.BuildConfig.VERSION_NAME} · ${viewModel.coreVersion()}", color = colors.onSurfaceVariant, fontSize = 10.sp, modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
@@ -244,8 +243,8 @@ internal fun SettingsHub(state: PulseUiState, viewModel: PulseViewModel, openVpn
         confirmButton = { TextButton(onClick = { help = null }) { Text("Понятно") } }) }
     confirm?.let { action ->
         AlertDialog(onDismissRequest = { confirm = null }, title = { Text(if (action == "history") "Очистить историю?" else "Сбросить дополнительные параметры?") },
-            text = { Text(if (action == "history") "Удалятся замеры текущей подписки. Серверы и настройки останутся." else "Сбросятся параметры туннеля, пинга и приватности. Подписки, темы и списки приложений останутся.") },
-            confirmButton = { TextButton(onClick = { if (action == "history") viewModel.clearPingHistory() else viewModel.resetAdvanced(); confirm = null }) { Text("Подтвердить") } },
+            text = { Text(if (action == "history") "Удалятся замеры текущей подписки. Серверы и настройки останутся." else "Дополнительные настройки вернутся к исходным, включая анимации и приватность. Подписки, темы и списки приложений останутся.") },
+            confirmButton = { TextButton(onClick = { if (action == "history") viewModel.clearPingHistory() else viewModel.resetAdvanced(); confirm = null }) { Text(if (action == "history") "Очистить" else "Сбросить") } },
             dismissButton = { TextButton(onClick = { confirm = null }) { Text("Отмена") } })
     }
 }

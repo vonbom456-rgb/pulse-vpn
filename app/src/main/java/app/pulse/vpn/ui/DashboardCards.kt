@@ -53,10 +53,10 @@ internal fun ConnectionCard(state: PulseUiState, connect: () -> Unit, disconnect
     val server = state.servers.firstOrNull { it.selected }
     val large = LocalDensity.current.fontScale > 1.3f
     val title = when {
-        !configured -> "Начнём с подписки"
+        !configured -> "Добавьте подписку"
         active -> "Подключено"
-        state.vpnStatus == Status.Starting -> "Подключаем"
-        state.vpnStatus == Status.Stopping -> "Завершаем"
+        state.vpnStatus == Status.Starting -> "Подключение…"
+        state.vpnStatus == Status.Stopping -> "Отключение…"
         blocked -> "Подписка недоступна"
         else -> "VPN отключён"
     }
@@ -64,7 +64,7 @@ internal fun ConnectionCard(state: PulseUiState, connect: () -> Unit, disconnect
         !configured -> "Добавить подписку"
         active -> "Отключить"
         state.vpnStatus == Status.Starting -> "Отменить"
-        state.vpnStatus == Status.Stopping -> "Завершаем…"
+        state.vpnStatus == Status.Stopping -> "Отключаем…"
         blocked -> if (remote) "Обновить" else "Выбрать подписку"
         else -> "Подключить"
     }
@@ -95,12 +95,12 @@ internal fun ConnectionCard(state: PulseUiState, connect: () -> Unit, disconnect
         }
         val caption = when {
             !configured -> "Вставьте ссылку подписки или отсканируйте QR."
-            blocked && !active && !moving -> "Подписка сохранена. Причина и помощь — в карточке ниже."
-            state.settingsPending -> "Есть изменения для следующего подключения"
-            state.vpnStatus == Status.Starting -> "Запускаем VPN. Можно отменить."
+            blocked && !active && !moving -> "Обновите подписку или выберите другую."
+            state.settingsPending -> "Переподключитесь, чтобы применить настройки"
+            state.vpnStatus == Status.Starting -> "Соединяемся с сервером…"
             active && state.routingMode == "direct" -> "Режим напрямую: трафик без VPN"
-            active -> "Туннель работает · " + when (state.perAppMode) { 1 -> "выбранные приложения"; 2 -> "с исключениями"; else -> "все приложения" }
-            else -> "Нажмите кнопку для подключения"
+            active -> "Через VPN · " + when (state.perAppMode) { 1 -> "выбранные приложения"; 2 -> "с исключениями"; else -> "все приложения" }
+            else -> "Выберите сервер и подключитесь"
         }
         val text: @Composable (Modifier) -> Unit = { modifier ->
             Column(modifier, verticalArrangement = Arrangement.spacedBy(7.dp)) {
@@ -188,13 +188,13 @@ internal fun SubscriptionCard(profile: VpnProfile, servers: List<VpnServer>, ope
             }
             IconButton(toggleExpanded) { Icon(if (expanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore, if (expanded) "Свернуть подписку" else "Развернуть подписку") }
         }
-        androidx.compose.animation.AnimatedVisibility(expanded) {
+        PulseDisclosure(expanded) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 profile.issue?.let { issue ->
                     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(colors.errorContainer.copy(.55f)).padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(issue.title, color = colors.onErrorContainer, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                         Text(issue.message, color = colors.onErrorContainer, fontSize = 12.sp, lineHeight = 17.sp)
-                        Text(if (issue.blocksConnection) issue.hint else "Сохранённые серверы доступны. Можно подключаться и повторить обновление позже.", color = colors.onErrorContainer, fontSize = 11.sp, lineHeight = 16.sp)
+                        Text(if (issue.blocksConnection) issue.hint else "Можно подключиться к сохранённым серверам. Обновление повторите позже.", color = colors.onErrorContainer, fontSize = 11.sp, lineHeight = 16.sp)
                     }
                 }
                 Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(colors.surfaceContainerLow).padding(horizontal = 10.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
