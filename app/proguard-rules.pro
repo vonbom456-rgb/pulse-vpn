@@ -1,0 +1,4 @@
+-keep class io.nekohasekai.libbox.** { *; }
+-keep class go.** { *; }
+-keep class io.nekohasekai.sfa.aidl.** { *; }
+-dontwarn org.yaml.snakeyaml.**
